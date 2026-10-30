@@ -82,6 +82,16 @@ Toolchain: VS 2022 Build Tools (C++ workload + "C++ Clang tools for Windows"; CM
 Gotchas:
 - The ares submodule inside N64Recomp points at an unpublished commit. Never use `--recursive` across it; fetch with `--no-recurse-submodules`.
 - PSR `main` calls `ultramodern::input::apply_stick_deadzone`, which was never published in any runtime fork, so it's implemented locally in `src/main/main.cpp`.
+- Runtime fixes live in `patches/N64ModernRuntime/*.patch` and `setup_libs.ps1` applies them. Current one: `thread_queue_remove` on a NULL queue crashed `osDestroyThread` when opening the Pokémon Lab's Game Cart Machine.
+
+## Transfer Pak findings (Windows, 2026-10-30)
+- An empty `pN_save` means no save at all: cart RAM is memory-only and lost at exit, even though the launcher shows "Default (runtime chooses)". Fix planned: default to `<rom basename>.sav` next to the ROM.
+- `gbcart.cpp` `flush_save()` truncates and rewrites the whole 32 KB `.sav` on every 32-byte block write. There's no backup or checksum check yet (planned, following the 3DS port's design).
+- Stadium requires the Red/Blue/Yellow save to have been made inside a Pokémon Center ("wasn't saved at a Pokémon Center"). This is real game behavior.
+- A fresh Gen 1 save never formats PC box banks 2 and 3 (pokered only runs `EmptyAllSRAMBoxes` on the first box change), so Stadium reports a "Transfer Pak not set properly" style error. Formatting them fixed the main Stadium paths.
+- GB Tower still rejects a save that's valid, saved in a Pokémon Center, with formatted boxes. Its I/O and RAM test pass; it reads all four RAM banks and then returns to the menu. The cause is unknown (recomp bug vs. the real game). Not required; parked.
+- Pokémon Lab write-back works: moving a Pokémon from the cart to a Stadium box updates the `.sav` with a valid main checksum, and Red still loads and changes boxes. Stadium also sets `wCurrentBoxNum` bit 7 and writes `FF` over the bank 2/3 box checksums; Red tolerated that in testing.
+- Debug aids: `PSR_GBSELFTEST=1` traces Transfer Pak status reads and SRAM reads/writes to stderr.
 ## Testing workflow
 - Claude builds and fixes on PC; the user installs APKs on the Thor and reports results/logs.
 - Back up every save before testing write-back.

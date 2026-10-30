@@ -34,6 +34,11 @@ if (Test-Path (Join-Path $n64recomp '.git')) {
 
 $runtime = Get-Repo 'N64ModernRuntime' 'https://github.com/mstan/N64ModernRuntime' 'd2aed7e'
 Invoke-Git -C $runtime submodule update --init thirdparty/miniz thirdparty/o1heap thirdparty/xxHash N64Recomp
+# Fork-local runtime fixes (patches\N64ModernRuntime). Skip any already applied.
+foreach ($patch in Get-ChildItem (Join-Path $root 'patches\N64ModernRuntime') -Filter *.patch) {
+    & git -C $runtime apply --reverse --check $patch.FullName 2>$null
+    if ($LASTEXITCODE -ne 0) { Invoke-Git -C $runtime apply $patch.FullName }
+}
 # The runtime's own engine copy must match the generator, since the generated
 # code compiles against its headers.
 $runtimeEngine = Join-Path $runtime 'N64Recomp'

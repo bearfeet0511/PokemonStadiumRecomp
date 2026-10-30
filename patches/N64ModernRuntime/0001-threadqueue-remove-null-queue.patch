@@ -1,0 +1,19 @@
+diff --git a/ultramodern/src/threadqueue.cpp b/ultramodern/src/threadqueue.cpp
+index 5fcdd5e..2b8e241 100644
+--- a/ultramodern/src/threadqueue.cpp
++++ b/ultramodern/src/threadqueue.cpp
+@@ -253,6 +253,14 @@ PTR(OSThread) ultramodern::thread_queue_pop(RDRAM_ARG PTR(PTR(OSThread)) queue_)
+ bool ultramodern::thread_queue_remove(RDRAM_ARG PTR(PTR(OSThread)) queue_, PTR(OSThread) t_) {
+     debug_printf("[Thread Queue] remove thread %d from queue 0x%08X\n", TO_PTR(OSThread, t_)->id, (uintptr_t)queue_);
+ 
++    // A thread running on its own host thread is in no queue (queue == NULL), unlike
++    // libultra where every non-stopped, non-running thread is queued. Walking from
++    // NULL reads guest address 0 as a list head and faults (osDestroyThread from the
++    // Game Cart Machine). Nothing to unlink.
++    if (queue_ == NULLPTR) {
++        return false;
++    }
++
+     // Scan the list for the target and unlink it if found.
+     PTR(OSThread)* link = queue_to_ptr(PASS_RDRAM queue_);
+     while (*link != NULLPTR) {
