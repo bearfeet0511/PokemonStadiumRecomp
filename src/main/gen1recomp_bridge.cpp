@@ -51,6 +51,9 @@ namespace {
     fs::path cart_path(int port) { return port_file(port, ".cart.sav"); }
     fs::path state_path(int port) { return port_file(port, ".state"); }
     fs::path log_path(int port) { return port_file(port, ".log"); }
+    // Slot entries of Pokemon that left a cart, per playthrough, so they get
+    // their identity back when they return (see merge.lua).
+    fs::path departed_dir() { return work_dir() / "departed"; }
 
     // Slots live at <identity>\saves\<game>\slotN.lua.
     std::string game_of(const fs::path& slot) {
@@ -254,8 +257,10 @@ namespace {
         fs::path merged = state.slot;
         merged += ".stadium-tmp";
         fs::remove(merged, ec);
+        fs::create_directories(departed_dir(), ec);
         const int rc = run_lua(port, game, {
-            tool_dir() / "merge.lua", state.slot, before_path(port), cart_path(port), merged, game });
+            tool_dir() / "merge.lua", state.slot, before_path(port), cart_path(port), merged, game,
+            departed_dir() });
         if (rc != 0 || !fs::exists(merged, ec)) {
             notify("Merging Stadium's changes into " + state.slot.filename().string() +
                    " failed. They're kept and will be retried next launch. Details: " +

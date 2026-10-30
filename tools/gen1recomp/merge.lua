@@ -1,6 +1,6 @@
 -- Merges what Pokemon Stadium changed on a cart back into a Gen1Recomp slot.
 --
---   luajit <this file> <slot.lua> <before.sav> <after.sav> <out.lua> [game]
+--   luajit <this file> <slot.lua> <before.sav> <after.sav> <out.lua> [game] [departed-dir]
 --
 -- Run with the working directory at a pinned Gen1Recomp checkout (its src/
 -- modules are required from ./) and its ROM cache on LUA_PATH, e.g.
@@ -17,6 +17,11 @@
 -- nuzlockeId, catch data), matched by the nuzlocke mod's own fingerprint:
 -- species plus DVs, plus OT ID. A Pokemon Stadium did not alter is kept
 -- verbatim from the slot.
+--
+-- With a departed-dir, a Pokemon that leaves the cart (into Stadium's own
+-- storage, or traded away) has its slot entry kept in
+-- <departed-dir>/<playthroughId>.lua, and gets it back if a Pokemon with the
+-- same fingerprint returns, so it keeps its nuzlocke identity and history.
 --
 -- Based on Gen1Recomp's tools/save_convert/convert.lua.
 -- Gen1Recomp: Copyright (C) 2026 BOIS CLUB GAMES, LLC, Pokemon Gen 1
@@ -96,7 +101,39 @@ local function importCart(path, game)
   return assert(SaveConvert.importSav(bytes, Version.saveFormat, game))
 end
 
-local function main(slotPath, beforePath, afterPath, outPath, game)
+-- The slot's entry for a mon whose cart form was `cartMon` when it left, now
+-- back on the cart as `mon`: the original verbatim when the cart data didn't
+-- change, otherwise the new cart data plus the original's slot-only fields.
+local function restore(original, cartMon, mon)
+  if cartMon and deepEqual(cartMon, mon) then
+    return original, false
+  end
+  local merged = copy(mon)
+  for k, v in pairs(original) do
+    if merged[k] == nil and (cartMon == nil or cartMon[k] == nil) then
+      merged[k] = copy(v)
+    end
+  end
+  return merged, true
+end
+
+local function departedPath(dir, slot)
+  local id = type(slot.meta) == "table" and slot.meta.playthroughId
+  if not dir or not id then return nil end
+  return dir .. "/" .. tostring(id) .. ".lua"
+end
+
+-- fingerprint -> list of { original = <slot entry>, cart = <cart form> }
+local function loadDeparted(path)
+  if not path then return {} end
+  local f = io.open(path, "rb")
+  if not f then return {} end
+  local content = f:read("*a")
+  f:close()
+  return SaveSerializer.decode(content) or {}
+end
+
+local function main(slotPath, beforePath, afterPath, outPath, game, departedDir)
   local slot = assert(SaveSerializer.decode(readFile(slotPath)))
   game = game or slot.version or "red"
   local before = importCart(beforePath, game)
@@ -104,29 +141,29 @@ local function main(slotPath, beforePath, afterPath, outPath, game)
 
   local slotMons = indexMons(slot)
   local beforeMons = indexMons(before)
+  local storePath = departedPath(departedDir, slot)
+  local departed = loadDeparted(storePath)
   local report = {}
 
-  -- Rebuild a mon from the after-cart: the slot's own table when Stadium left
-  -- the cart data alone, otherwise the new cart data plus slot-only fields.
+  -- Rebuild a mon from the after-cart, from the slot entry it came from, or
+  -- from the departed store if it is returning; otherwise it is new here.
   local function resolve(mon)
     local fp = fingerprint(mon)
     local original = take(slotMons, fp)
     local beforeMon = take(beforeMons, fp)
-    if original and beforeMon and deepEqual(beforeMon, mon) then
-      return original
+    if original then
+      local resolved, changed = restore(original, beforeMon, mon)
+      if changed then table.insert(report, ("  changed %s"):format(fp)) end
+      return resolved
     end
-    if not original then
-      table.insert(report, ("  new %s (not in slot: traded or from Stadium)"):format(fp))
-      return copy(mon)
+    local returning = take(departed, fp)
+    if returning then
+      table.insert(report, ("  returned %s%s"):format(fp,
+        returning.original.nuzlockeId and (" (" .. returning.original.nuzlockeId .. ")") or ""))
+      return (restore(returning.original, returning.cart, mon))
     end
-    table.insert(report, ("  changed %s"):format(fp))
-    local merged = copy(mon)
-    for k, v in pairs(original) do
-      if merged[k] == nil and (beforeMon == nil or beforeMon[k] == nil) then
-        merged[k] = copy(v)
-      end
-    end
-    return merged
+    table.insert(report, ("  new %s (not in slot: traded or from Stadium)"):format(fp))
+    return copy(mon)
   end
 
   local changed = {}
@@ -151,16 +188,19 @@ local function main(slotPath, beforePath, afterPath, outPath, game)
     end
   end
 
-  -- Pokemon that left the cart entirely (moved into Stadium's own storage).
-  for fp, list in pairs(slotMons) do
-    for _, mon in ipairs(list) do
-      local inPartyOrBoxes = false
-      for _, section in ipairs(changed) do
-        if MON_SECTIONS[section] then inPartyOrBoxes = true end
-      end
-      if inPartyOrBoxes then
+  -- Pokemon that left the cart entirely (into Stadium's own storage, or
+  -- traded away): remember their slot entries for when they come back.
+  local monsChanged = false
+  for _, section in ipairs(changed) do
+    if MON_SECTIONS[section] then monsChanged = true end
+  end
+  if monsChanged then
+    for fp, list in pairs(slotMons) do
+      for _, mon in ipairs(list) do
         table.insert(report, ("  left cart %s%s"):format(fp,
           mon.nuzlockeId and (" (" .. mon.nuzlockeId .. ")") or ""))
+        departed[fp] = departed[fp] or {}
+        table.insert(departed[fp], { original = mon, cart = take(beforeMons, fp) })
       end
     end
   end
@@ -168,6 +208,12 @@ local function main(slotPath, beforePath, afterPath, outPath, game)
   local out = assert(io.open(outPath, "wb"))
   out:write(SaveSerializer.encode(slot))
   out:close()
+
+  if storePath and monsChanged then
+    local store = assert(io.open(storePath, "wb"))
+    store:write(SaveSerializer.encode(departed))
+    store:close()
+  end
 
   print(("changed sections: %s"):format(#changed > 0 and table.concat(changed, ", ") or "none"))
   for _, line in ipairs(report) do print(line) end
@@ -183,9 +229,9 @@ if arg[1] == "roundtrip" and arg[2] and arg[3] then
   out:close()
   print("wrote " .. arg[3])
 elseif arg[1] and arg[2] and arg[3] and arg[4] then
-  main(arg[1], arg[2], arg[3], arg[4], arg[5])
+  main(arg[1], arg[2], arg[3], arg[4], arg[5], arg[6])
 else
-  io.stderr:write("usage: luajit merge.lua <slot.lua> <before.sav> <after.sav> <out.lua> [game]\n"
+  io.stderr:write("usage: luajit merge.lua <slot.lua> <before.sav> <after.sav> <out.lua> [game] [departed-dir]\n"
     .. "       luajit merge.lua roundtrip <slot.lua> <out.lua>\n")
   os.exit(1)
 end
