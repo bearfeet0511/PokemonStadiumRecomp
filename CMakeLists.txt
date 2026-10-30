@@ -152,6 +152,7 @@ add_executable(PokemonStadiumRecomp
     src/main/transfer_pak.cpp
     src/main/save_backup.cpp
     src/main/gen1recomp_bridge.cpp
+    src/main/netplay_probe.cpp
     src/main/gb_audio.cpp
     src/main/input_bindings.cpp
     src/main/audio_host_probe.cpp

@@ -102,6 +102,7 @@ extern "C" const char* psr_app_file_c(const char* name, char* out, unsigned long
 #include "transfer_pak.h"
 #include "recompui_launcher.h"
 #include "input_bindings.h"
+#include "netplay_probe.h"
 
 extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx);
 
@@ -1575,6 +1576,15 @@ static void poll_inputs() {
     }
 }
 
+static bool get_n64_input(int controller_num, uint16_t* buttons_out, float* x_out, float* y_out);
+
+// Live input passed through the netplay determinism probe (record / replay /
+// state hash, all off unless their environment variables are set).
+static bool get_probed_input(int controller_num, uint16_t* buttons_out, float* x_out, float* y_out) {
+    const bool got = get_n64_input(controller_num, buttons_out, x_out, y_out);
+    return pkmnstadium::netplay_probe::filter_input(controller_num, got, buttons_out, x_out, y_out);
+}
+
 static bool get_n64_input(int controller_num, uint16_t* buttons_out, float* x_out, float* y_out) {
     *buttons_out = 0;
     *x_out = 0.0f;
@@ -2456,7 +2466,7 @@ int main(int argc, char** argv) {
     };
     ultramodern::input::callbacks_t input_callbacks{
         .poll_input                 = poll_inputs,
-        .get_input                  = get_n64_input,
+        .get_input                  = get_probed_input,
         .set_rumble                 = set_rumble,
         .get_connected_device_info  = get_connected_device_info,
     };

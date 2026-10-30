@@ -1,0 +1,60 @@
+diff --git a/ultramodern/src/timer.cpp b/ultramodern/src/timer.cpp
+index 19c6221..678f601 100644
+--- a/ultramodern/src/timer.cpp
++++ b/ultramodern/src/timer.cpp
+@@ -1,3 +1,4 @@
++#include <cstdlib>
+ #include <thread>
+ #include <variant>
+ #include <set>
+@@ -158,7 +159,32 @@ std::chrono::high_resolution_clock::duration ultramodern::time_since_start() {
+     return std::chrono::high_resolution_clock::now() - start_time;
+ }
+ 
++// Deterministic game-visible clock (netplay lockstep), opt-in via
++// RECOMP_DETERMINISTIC_CLOCK=1. Games mix osGetCount/osGetTime into RNG and
++// logic, so two machines must read identical values. Each guest thread gets
++// its own counter that advances a fixed step per read: values depend only on
++// that thread's own call sequence, never on host timing or on other threads.
++// Busy-waits on the counter still terminate because every read advances it.
++// Timers (osSetTimer) keep running on the host clock.
++static bool deterministic_clock() {
++    static const bool enabled = [] {
++        const char* env = std::getenv("RECOMP_DETERMINISTIC_CLOCK");
++        return env != nullptr && env[0] == '1';
++    }();
++    return enabled;
++}
++
++static uint64_t deterministic_ticks() {
++    constexpr uint64_t ticks_per_read = 2000;
++    thread_local uint64_t ticks = 0;
++    ticks += ticks_per_read;
++    return ticks;
++}
++
+ extern "C" u32 osGetCount() {
++    if (deterministic_clock()) {
++        return (uint32_t)deterministic_ticks();
++    }
+     // osGetCount is allowed to wrap, so truncating the 64-bit tick count is fine.
+     return (uint32_t)time_now();
+ }
+@@ -168,10 +194,17 @@ extern "C" void osSetCount(u32 count) {
+ }
+ 
+ extern "C" OSTime osGetTime() {
++    if (deterministic_clock()) {
++        return deterministic_ticks() - ostime_offset;
++    }
+     return time_now() - ostime_offset;
+ }
+ 
+ extern "C" void osSetTime(OSTime t) {
++    if (deterministic_clock()) {
++        ostime_offset = deterministic_ticks() - t;
++        return;
++    }
+     ostime_offset = time_now() - t;
+ }
+ 
