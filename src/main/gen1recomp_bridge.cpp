@@ -29,6 +29,7 @@ namespace {
 
     std::mutex bridge_mutex;
     bool prepared[port_count] = {};
+    fs::path prepared_slot[port_count];
 
     // LuaJIT, the pinned Gen1Recomp sources (src\, tools\save_convert\) and
     // merge.lua, copied next to the exe by the build.
@@ -131,6 +132,7 @@ namespace {
         fs::remove(before_path(port), ec);
         fs::remove(cart_path(port), ec);
         prepared[port] = false;
+        prepared_slot[port].clear();
     }
 
     // Two programs writing one slot is how saves get corrupted, so nothing is
@@ -304,6 +306,15 @@ std::filesystem::path prepare_cart(int port, const std::filesystem::path& slot) 
         notify("Gen1Recomp save not found: " + slot.string());
         return {};
     }
+    // Two carts merging into one slot would overwrite each other's changes.
+    for (int other = 0; other < port_count; other++) {
+        if (other != port && prepared[other] && fs::equivalent(prepared_slot[other], slot, ec)) {
+            notify(slot.filename().string() + " is already in the Transfer Pak for player " +
+                   std::to_string(other + 1) + ", so player " + std::to_string(port + 1) +
+                   "'s Transfer Pak was left empty. Each player needs their own save.");
+            return {};
+        }
+    }
     if (!fs::exists(luajit_path(), ec) || !fs::exists(tool_dir() / "merge.lua", ec) ||
         !fs::exists(tool_dir() / "tools" / "save_convert" / "convert.lua", ec)) {
         notify("Gen1Recomp support files are missing from " + tool_dir().string() +
@@ -335,6 +346,7 @@ std::filesystem::path prepare_cart(int port, const std::filesystem::path& slot) 
     }
     write_state(port, State{ slot, file_hash(slot) });
     prepared[port] = true;
+    prepared_slot[port] = slot;
     std::fprintf(stderr, "[gen1recomp] port %d: %s -> %s\n", port + 1, slot.string().c_str(),
                  cart_path(port).string().c_str());
     return cart_path(port);
