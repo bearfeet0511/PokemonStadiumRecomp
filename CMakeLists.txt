@@ -153,6 +153,7 @@ add_executable(PokemonStadiumRecomp
     src/main/save_backup.cpp
     src/main/gen1recomp_bridge.cpp
     src/main/netplay_probe.cpp
+    src/main/netplay.cpp
     src/main/gb_audio.cpp
     src/main/input_bindings.cpp
     src/main/audio_host_probe.cpp
@@ -254,7 +255,7 @@ if (WIN32)
     # the entry point (SDL.h does not redirect it to SDL_main). opengl32 backs the
     # launcher's GL window (imgui_impl_opengl3 + launcher_gl.c). comdlg32/ole32
     # also back tinyfiledialogs' native file pickers.
-    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib)
+    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib ws2_32.lib)
 endif()
 
 target_link_libraries(PokemonStadiumRecomp PRIVATE
@@ -320,6 +321,20 @@ target_sources(PokemonStadiumRecomp PRIVATE
 # recomp_target_launcher_ui() pins the target to C++17 (for ImGui); PSR's runner
 # needs C++20 (main.cpp), and ImGui compiles cleanly under 20, so restore it.
 set_target_properties(PokemonStadiumRecomp PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
+# ---- Build identity for the netplay handshake -------------------------------
+# Both players must run the same build; netplay compares this commit.
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE PSR_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT PSR_GIT_COMMIT)
+    set(PSR_GIT_COMMIT "unknown")
+endif()
+set_source_files_properties(src/main/netplay.cpp PROPERTIES
+    COMPILE_DEFINITIONS "PSR_GIT_COMMIT=\"${PSR_GIT_COMMIT}\"")
 
 # ---- Gen1Recomp save support next to the executable ------------------------
 # LuaJIT + the pinned Gen1Recomp sources (provisioned into third_party/ by

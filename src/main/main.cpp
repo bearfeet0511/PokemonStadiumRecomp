@@ -102,6 +102,7 @@ extern "C" const char* psr_app_file_c(const char* name, char* out, unsigned long
 #include "transfer_pak.h"
 #include "recompui_launcher.h"
 #include "input_bindings.h"
+#include "netplay.h"
 #include "netplay_probe.h"
 
 extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx);
@@ -1456,6 +1457,7 @@ static void update_gfx(void*) {
             ultramodern::quit();
             ultramodern::join_saving_thread();
             pkmnstadium::transfer_pak::shutdown();
+            pkmnstadium::netplay::shutdown();
             std::fflush(stdout);
             std::fflush(stderr);
             std::_Exit(0);
@@ -1578,10 +1580,19 @@ static void poll_inputs() {
 
 static bool get_n64_input(int controller_num, uint16_t* buttons_out, float* x_out, float* y_out);
 
-// Live input passed through the netplay determinism probe (record / replay /
-// state hash, all off unless their environment variables are set).
+// In netplay this machine's player-1 device drives its own port (host 1,
+// guest 2); the other port comes from the network.
+static bool get_local_player_input(uint16_t* buttons_out, float* x_out, float* y_out) {
+    return get_n64_input(0, buttons_out, x_out, y_out);
+}
+
+// Live (or netplay lockstep) input passed through the determinism probe
+// (record / replay / state hash, all off unless their environment variables
+// are set).
 static bool get_probed_input(int controller_num, uint16_t* buttons_out, float* x_out, float* y_out) {
-    const bool got = get_n64_input(controller_num, buttons_out, x_out, y_out);
+    const bool got = pkmnstadium::netplay::active()
+        ? pkmnstadium::netplay::get_input(controller_num, get_local_player_input, buttons_out, x_out, y_out)
+        : get_n64_input(controller_num, buttons_out, x_out, y_out);
     return pkmnstadium::netplay_probe::filter_input(controller_num, got, buttons_out, x_out, y_out);
 }
 
@@ -1756,6 +1767,15 @@ static void set_rumble(int controller_num, bool on) {
 static ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
     const bool has_transfer_pak = pkmnstadium::transfer_pak::has_transfer_pak(controller_num);
     ultramodern::input::connected_device_info_t info{};
+
+    // Netplay: both machines must report the same controllers.
+    if (pkmnstadium::netplay::active()) {
+        info.connected_device = pkmnstadium::netplay::controller_present(controller_num)
+            ? ultramodern::input::Device::Controller
+            : ultramodern::input::Device::None;
+        info.connected_pak = ultramodern::input::Pak::None;
+        return info;
+    }
 
     // Launcher mode: a port is present iff its slot is enabled AND it has either
     // an assigned controller or a Transfer Pak cart. Disabled slots are absent,
@@ -2140,6 +2160,9 @@ int main(int argc, char** argv) {
     recomp::Version project_version{0, 1, 0, ""};
     recomp::register_config_path(std::filesystem::current_path());
     pkmnstadium::transfer_pak::initialize();
+    // Connects and handshakes when PSR_NETPLAY is set (before the game starts,
+    // so both machines boot into the same state).
+    pkmnstadium::netplay::start();
 
     // Resolve all launch-time graphics settings from launcher.cfg (+ env
     // overrides) and apply them BEFORE recomp::start creates the render context.
@@ -2508,5 +2531,6 @@ int main(int argc, char** argv) {
 
     std::fprintf(stderr, "[PSR] recomp::start returned\n"); std::fflush(stderr);
     pkmnstadium::transfer_pak::shutdown();
+    pkmnstadium::netplay::shutdown();
     return EXIT_SUCCESS;
 }

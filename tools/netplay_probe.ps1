@@ -6,11 +6,12 @@
 #   ... replay     # two instances (a, b) replay that input side by side
 #                  # (-DumpAt <poll> also writes each one's RDRAM at that poll)
 #   ... compare    # first poll where the runs' state hashes differ
+#   ... netplay    # a hosts and b joins over localhost (b plays on keyboard)
 #
 # Each instance runs from its own folder under third_party\work\np\ (config,
 # Stadium save and logs live next to the exe), all starting from the same
 # Stadium save snapshot, with the Transfer Pak off and the launcher skipped.
-param([Parameter(Mandatory)][ValidateSet('setup', 'record', 'replay', 'compare')][string]$Step,
+param([Parameter(Mandatory)][ValidateSet('setup', 'record', 'replay', 'compare', 'netplay')][string]$Step,
       [int]$DumpAt = -1)
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,7 @@ $instances = 'rec', 'a', 'b'
 $saveName = 'pokestadium.us.1.0.bin'
 
 function Start-Instance($name, $port, $extraEnv) {
+    Update-Binaries $name
     $dir = Join-Path $np $name
     $env:RECOMP_DETERMINISTIC_CLOCK = '1'
     $env:PSR_STATE_HASH = Join-Path $dir 'hash.txt'
@@ -32,6 +34,17 @@ function Start-Instance($name, $port, $extraEnv) {
         Remove-Item "env:$k" -ErrorAction SilentlyContinue
     }
     return $p
+}
+
+# Hardlinks to the build's exe and DLLs. The linker writes a new file on every
+# build, which breaks the links, so they're refreshed before every launch.
+function Update-Binaries($name) {
+    $dir = Join-Path $np $name
+    foreach ($f in Get-ChildItem $build -File -Include *.exe, *.dll -Name -Path "$build\*") {
+        $link = Join-Path $dir $f
+        Remove-Item $link -ErrorAction SilentlyContinue
+        New-Item -ItemType HardLink -Path $link -Target (Join-Path $build $f) | Out-Null
+    }
 }
 
 # Every run starts from the same Stadium save, so its contents can't differ.
@@ -52,9 +65,7 @@ switch ($Step) {
             $dir = Join-Path $np $name
             Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
             New-Item -ItemType Directory -Force $dir | Out-Null
-            foreach ($f in Get-ChildItem $build -File -Include *.exe, *.dll -Name -Path "$build\*") {
-                New-Item -ItemType HardLink -Path (Join-Path $dir $f) -Target (Join-Path $build $f) | Out-Null
-            }
+            Update-Binaries $name
             Copy-Item (Join-Path $build 'rom.cfg') $dir
             Copy-Item -Recurse (Join-Path $build 'assets') $dir
             Set-Content (Join-Path $dir 'launcher.cfg') $config -Encoding ascii
@@ -75,6 +86,17 @@ switch ($Step) {
         $a = Start-Instance 'a' 4382 $replayEnv
         $b = Start-Instance 'b' 4383 $replayEnv
         Write-Host "replaying in a (pid $($a.Id)) and b (pid $($b.Id))"
+    }
+    'netplay' {
+        foreach ($name in 'a', 'b') { Reset-Save $name }
+        # One person can drive both: the host on the gamepad, the guest on the keyboard.
+        $bConfig = Join-Path $np 'b\launcher.cfg'
+        (Get-Content $bConfig) -replace '^p1_device=.*', 'p1_device=1' | Set-Content $bConfig -Encoding ascii
+        # The host records both players' lockstep input, so a session can be
+        # replayed offline (e.g. to reproduce a crash on another build).
+        $a = Start-Instance 'a' 4382 @{ PSR_NETPLAY = 'host:7311'; PSR_INPUT_RECORD = (Join-Path $np 'a\netplay-input.bin') }
+        $b = Start-Instance 'b' 4383 @{ PSR_NETPLAY = 'join:127.0.0.1:7311' }
+        Write-Host "host a (pid $($a.Id)), guest b (pid $($b.Id))"
     }
     'compare' {
         $py = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'

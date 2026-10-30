@@ -17,8 +17,8 @@ see the depth-bounded tailcall fix below.
   announcer speech (and the crowd bed under moves) still carries
   static in battles. See the 2026-07-02 update entry below.
 - **#13 Free Battle → Rental roster → pokemon detail view crashes
-  (fragment eviction).** Upstream reproduced 3/3; **not reproducible on
-  this fork's build (2026-10-30, 2/2 runs)**. See entry below.
+  (fragment eviction).** **FIXED 2026-10-30** (`patches/N64ModernRuntime/0003`).
+  See entry below.
 - **Fork: rainbow lines in the small rotating model viewer** (Pokédex,
   rental detail view) — **FIXED 2026-10-30.** Cause: conservative
   rasterization (`TEMP_PATCHES.md`) on perspective draws. `patches/rt64/0001`
@@ -117,6 +117,25 @@ order.
   ran a July 2 debug runtime with DMA-ring instrumentation; that may be the
   difference. The 3DS port special-cases fragment 239 (= 0xEF) as "model
   slot holds fragment id", which is the place to look if it comes back.
+
+  *Fork, 2026-10-30, later: reproduced and FIXED.* It reproduced under the
+  deterministic clock (netplay test, both players picking rentals; both
+  instances crashed at the same controller read, with the same misses
+  `0x801E4788`, `0x801E40B8`, `0x801E4414`, … then a wild jump to
+  `0x0002027C`). It's timing-dependent, which is why plain runs missed it.
+  Root cause: the issue #9 Phase 1 "supersede" in `overlays.cpp`
+  (`register_runtime_fragment`) tracked the last live range **per fragment
+  id**, and on a reload of that id at a new base erased the old range's
+  `func_map` entries. Stadium uses id 239 as a shared model slot for many
+  different sections (rental/Pokédex/detail models), several live at once.
+  The log showed `[frag-unreg] id=239 superseded 0x801D7A30(size0x473E0)` when
+  a *different* section (size 0x183B0) loaded, erasing 287 entries of a
+  model still being drawn. Fix: key the live range by **section** (tagged
+  key), so only a reload of the same section, the case #9 guards against
+  (shared global section base), supersedes. Verified: a 2-player netplay
+  session through rental picking and a battle, with 51 id-239 loads, 4
+  same-section supersedes and none of #13's misses; host and guest stayed
+  in lockstep throughout.
 
 **Original priority order (user-set 2026-05-28, superseded above for open work):**
 1. ~~Cursor / icon sprite corruption~~ — **FIXED 2026-05-28, user-confirmed.**

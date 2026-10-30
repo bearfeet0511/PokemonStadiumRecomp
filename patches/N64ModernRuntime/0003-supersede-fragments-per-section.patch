@@ -1,0 +1,50 @@
+diff --git a/librecomp/src/overlays.cpp b/librecomp/src/overlays.cpp
+index 387c64e..1ec493f 100644
+--- a/librecomp/src/overlays.cpp
++++ b/librecomp/src/overlays.cpp
+@@ -245,6 +245,16 @@ static uint32_t frag_range_erase(uint32_t base, uint32_t size) {
+ // dispatch model, so its whole runtime range is unregistered (turns stale-wrong-code into a
+ // visible miss; Phase 2/3 will instead keep prior live instances dispatchable by range).
+ static std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> s_frag_live_range{};
++// Key for a bound instance: its SECTION, not its fragment id. Superseding exists because one
++// section's code relocates through a single global section base; a second copy of the same
++// section at another base is what goes stale. Different sections never share that base, and
++// games reuse one fragment id for many sections that are live at once (Pokemon Stadium's
++// model slot, id 239: the rental/Pokedex/detail models), so keying by id unregistered models
++// still on screen (PSR issue #13). Section keys are tagged so they can't collide with the
++// no-bind path's id keys.
++static uint32_t live_range_key_for_section(size_t section_index) {
++    return 0x80000000u | (uint32_t)section_index;
++}
+ }  // anon namespace
+ 
+ // Forward declarations — definitions live further down with the rest
+@@ -1531,12 +1541,12 @@ void recomp::overlays::register_runtime_fragment(uint8_t* rdram, uint32_t id, in
+     // function-start / trampoline / interior-entry aliases can't resolve to old code under the
+     // new section base. (Same-base reload just overwrites the same keys; no stale residue.)
+     if (frag_unreg_enabled()) {
+-        auto prev = s_frag_live_range.find(id);
++        auto prev = s_frag_live_range.find(live_range_key_for_section(found_index));
+         if (prev != s_frag_live_range.end() && prev->second.first != (uint32_t)fragment_ptr) {
+             uint32_t erased = frag_range_erase(prev->second.first, prev->second.second);
+             if (erased) {
+-                fprintf(stderr, "[frag-unreg] id=%u superseded 0x%08X(size0x%X): erased %u stale func_map entries (new base 0x%08X)\n",
+-                        id, prev->second.first, prev->second.second, erased, (uint32_t)fragment_ptr);
++                fprintf(stderr, "[frag-unreg] id=%u section=%zu superseded 0x%08X(size0x%X): erased %u stale func_map entries (new base 0x%08X)\n",
++                        id, found_index, prev->second.first, prev->second.second, erased, (uint32_t)fragment_ptr);
+                 fflush(stderr);
+             }
+         }
+@@ -1563,9 +1573,9 @@ void recomp::overlays::register_runtime_fragment(uint8_t* rdram, uint32_t id, in
+         secaddr_set(section.index, fragment_ptr, "register");
+     }
+ 
+-    // Issue #9 Phase 1: record this instance's live runtime range so the NEXT load of this id
+-    // at a different base can supersede-unregister it (above).
+-    s_frag_live_range[id] = { (uint32_t)fragment_ptr, (uint32_t)section.size };
++    // Issue #9 Phase 1: record this instance's live runtime range so the NEXT load of this
++    // section at a different base can supersede-unregister it (above).
++    s_frag_live_range[live_range_key_for_section(found_index)] = { (uint32_t)fragment_ptr, (uint32_t)section.size };
+ 
+     // Per-variant synthetic-vram registration: if this section has a
+     // synthetic link identity (ram_addr in the synthetic pool), populate
