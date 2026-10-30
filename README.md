@@ -1,3 +1,40 @@
+## About this fork
+
+A community fork of [SS Anne / PokemonStadiumRecomp](https://github.com/mstan/PokemonStadiumRecomp)
+by mstan, which is no longer maintained (see below). Goals: Transfer Pak play
+with Gen1Recomp saves, playing with friends, and an Android build later.
+
+**Added so far**
+- **Gen1Recomp save slots as Transfer Pak carts.** Pick a Gen1Recomp
+  `slotN.lua` as a cart's battery save. It is converted for Stadium at Play
+  and Stadium's changes are merged back on quit, changed sections only, so mod
+  data (e.g. nuzlocke tracking) is preserved. Pokémon stored in Stadium and
+  withdrawn later keep their identity. See [`CLAUDE.md`](CLAUDE.md) for details.
+- **Two players**, each with their own cart and save, for battles and Pokémon
+  Lab trades.
+- **Save safety:** timestamped backups in `saves\backups\` every session; an
+  unset save defaults to `<rom>.sav` instead of being lost at exit.
+- **Fixes:** crash when opening the Pokémon Lab's Game Cart Machine; a
+  never-published runtime function the input code needed.
+- **Reproducible Windows setup:** `tools\setup_libs.ps1` fetches every
+  dependency at pinned versions; `tools/docker_disasm.sh` builds pret's
+  disassembly without a MIPS toolchain. Build steps are in `CLAUDE.md`.
+
+**Credits**
+- [SS Anne / PokemonStadiumRecomp](https://github.com/mstan/PokemonStadiumRecomp)
+  and its N64Recomp, N64ModernRuntime and rt64 forks, by mstan.
+- [pret/pokestadium](https://github.com/pret/pokestadium) and
+  [pret/pokered](https://github.com/pret/pokered) disassemblies.
+- Gen1Recomp save support uses code from BOIS CLUB GAMES, LLC's
+  [Pokemon Gen 1 Recompilation Project](https://github.com/bryanthaboi/gen1recomp)
+  (GPLv3 with additional terms; its license ships in `gen1recomp\LICENSE.MD`).
+- [LuaJIT](https://luajit.org/) (MIT) runs the save converter.
+
+No ROMs or game assets are included. Bring your own Pokémon Stadium (US v1.0)
+ROM and your own Game Boy ROMs and saves.
+
+---
+
 ## ⚠️ Project Status: No Longer Maintained
 
 **As of August 2026, this project is no longer maintained.** The repository
