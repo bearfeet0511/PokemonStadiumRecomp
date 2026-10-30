@@ -92,6 +92,15 @@ Gotchas:
 - GB Tower still rejects a save that's valid, saved in a Pokémon Center, with formatted boxes. Its I/O and RAM test pass; it reads all four RAM banks and then returns to the menu. The cause is unknown (recomp bug vs. the real game). Not required; parked.
 - Pokémon Lab write-back works: moving a Pokémon from the cart to a Stadium box updates the `.sav` with a valid main checksum, and Red still loads and changes boxes. Stadium also sets `wCurrentBoxNum` bit 7 and writes `FF` over the bank 2/3 box checksums; Red tolerated that in testing.
 - Debug aids: `PSR_GBSELFTEST=1` traces Transfer Pak status reads and SRAM reads/writes to stderr.
+
+## Gen1Recomp saves (findings, 2026-10-30)
+- Pinned to Gen1Recomp **v0.3.40** (the user's build). It's licensed GPLv3 with additional terms: credit "BOIS CLUB GAMES, LLC's Pokemon Gen 1 Recompilation Project" (https://github.com/bryanthaboi/gen1recomp) in the README and in any launcher/front end. Its launcher is proprietary; never reuse it.
+- Slots live at `%APPDATA%\pokemon-love2d\saves\<game>\slotN.lua` (+ `.bak`), as plain Lua tables. The ROM cache is `%APPDATA%\pokemon-love2d\<game>\` (`data\generated\*.lua`, marker `rom-cache.complete`).
+- Pokémon live in `party` and `boxes[1..12]` + `currentBox`. A top-level `box = {}` is a New Game leftover that nothing reads.
+- We reuse Gen1Recomp's own codec rather than writing one: `tools/save_convert/convert.lua export` (slot → .sav) under LuaJIT, run from the checkout with the ROM cache on `LUA_PATH` (v0.3.40 ignores `RED_CACHE`). LuaJIT's file I/O can't open paths over 260 chars.
+- `tools/gen1recomp/merge.lua` merges back: it decodes the before/after carts with Gen1Recomp's importer, copies only changed sections (party, boxes, currentBox, inventory, pcItems, pokedex), and keeps slot-only per-mon fields matched by fingerprint (species + DVs + OT ID, the same as the nuzlocke mod). Re-encoding an unchanged slot is byte-identical (output must be written in binary mode).
+- Nuzlocke mod (2.9.72): stores per-mon fields (`nuzlockeId`, `nuzlockeDead`, encounter data). A dead Pokémon is removed from the party into `modData.nuzlocke.route_forgiveness_dead_archive`, so Stadium never sees it. Unverified: how the mod reacts when a living Pokémon leaves the slot because it was moved into Stadium storage.
+- The rby_mmo mod conflicts with the nuzlocke mod (split Route 1 areas, unrecorded deaths). The user dropped it; focus is nuzlocke + Stadium battles/trades.
 ## Testing workflow
 - Claude builds and fixes on PC; the user installs APKs on the Thor and reports results/logs.
 - Back up every save before testing write-back.

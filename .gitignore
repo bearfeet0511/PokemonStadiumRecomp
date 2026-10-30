@@ -88,6 +88,8 @@ __pycache__/
 # baserom.z64 + the script. The script is the source of truth.
 tools/*_decompressed.bin
 lib/
+# Gen1Recomp source (pinned checkout), LuaJIT, and save-conversion scratch files.
+third_party/
 
 # Internal docs kept locally only — see the `internal` branch for
 # the full snapshot of these files at the point they were untracked.
