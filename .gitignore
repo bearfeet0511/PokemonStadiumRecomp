@@ -91,7 +91,6 @@ lib/
 
 # Internal docs kept locally only — see the `internal` branch for
 # the full snapshot of these files at the point they were untracked.
-CLAUDE.md
 TO_ADAPT_FROM_BATTLESHIP.md
 
 # Issue #17 raw GB-Tower ring dumps — large (100MB+) UTF-16 debug captures,

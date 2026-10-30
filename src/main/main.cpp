@@ -1673,13 +1673,23 @@ static bool get_n64_input(int controller_num, uint16_t* buttons_out, float* x_ou
     // 8000 raw matches the C-button deadzone; well above typical resting
     // drift but well below intentional tilts. The shared shim
     // (ultramodern osContGetReadData) expects a normalized [-1, 1] stick and
-    // scales it to the N64 int8 range; apply_stick_deadzone is the single
-    // shared producer of that value (a local copy here used to multiply by
+    // scales it to the N64 int8 range (an older copy here multiplied by
     // 80.0f, which wrapped the shim's (int8_t)(127 * x) cast and inverted the
     // axis — masked only because Stadium menus drive on the D-pad).
+    // Upstream switched to ultramodern::input::apply_stick_deadzone, but that
+    // runtime change was never published, so the helper lives here.
     constexpr int32_t LSTICK_DEADZONE = 8000;
-    *x_out =  ultramodern::input::apply_stick_deadzone(lx, LSTICK_DEADZONE);
-    *y_out = -ultramodern::input::apply_stick_deadzone(ly, LSTICK_DEADZONE);
+    auto apply_deadzone = [](int32_t v) -> float {
+        float out = 0.0f;
+        if (v >  LSTICK_DEADZONE) {
+            out = float(v - LSTICK_DEADZONE) / float(32767 - LSTICK_DEADZONE);
+        } else if (v < -LSTICK_DEADZONE) {
+            out = float(v + LSTICK_DEADZONE) / float(32767 - LSTICK_DEADZONE);
+        }
+        return std::clamp(out, -1.0f, 1.0f);
+    };
+    *x_out =  apply_deadzone(lx);
+    *y_out = -apply_deadzone(ly);
 
     // Apply TCP override: OR buttons in, replace stick if non-zero.
     // claim_input arms the override flag (so osContInit reports
