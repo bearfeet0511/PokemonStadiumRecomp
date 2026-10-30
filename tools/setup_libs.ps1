@@ -52,6 +52,39 @@ Invoke-Git -C $rt64 submodule update --init --recursive
 Get-Repo 'concurrentqueue' 'https://github.com/cameron314/concurrentqueue' $null | Out-Null
 Get-Repo 'SlotMap' 'https://github.com/SergeyMakeev/SlotMap' $null | Out-Null
 
+# Fork-local launcher fixes (patches\recomp-ui), e.g. picking Gen1Recomp slots.
+$recompUi = Join-Path $root 'recomp-ui'
+foreach ($patch in Get-ChildItem (Join-Path $root 'patches\recomp-ui') -Filter *.patch) {
+    & git -C $recompUi apply --reverse --check $patch.FullName 2>$null
+    if ($LASTEXITCODE -ne 0) { Invoke-Git -C $recompUi apply $patch.FullName }
+}
+
+# Gen1Recomp save support (third_party\, gitignored): the pinned Gen1Recomp
+# sources whose converter we run, and LuaJIT to run it. Only src\ and
+# tools\save_convert\ are checked out (the repo is ~12k files with Android).
+$thirdParty = Join-Path $root 'third_party'
+New-Item -ItemType Directory -Force $thirdParty | Out-Null
+$gen1recomp = Join-Path $thirdParty 'gen1recomp'
+if (-not (Test-Path (Join-Path $gen1recomp '.git'))) {
+    Invoke-Git clone -q --filter=blob:none --no-checkout https://github.com/bryanthaboi/gen1recomp $gen1recomp
+}
+Invoke-Git -C $gen1recomp sparse-checkout set --no-cone /src/ /tools/save_convert/ /LICENSE.MD
+Invoke-Git -C $gen1recomp checkout -q v0.3.40
+
+$luajit = Join-Path $thirdParty 'luajit'
+if (-not (Test-Path (Join-Path $luajit '.git'))) {
+    Invoke-Git clone -q --depth 1 --branch v2.1 https://github.com/LuaJIT/LuaJIT $luajit
+}
+$luajitSrc = Join-Path $luajit 'src'
+if (-not (Test-Path (Join-Path $luajitSrc 'luajit.exe'))) {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    # msvcbuild.bat runs its helper tools by bare name, so a shell with
+    # NoDefaultCurrentDirectoryInExePath set can't find them; clear it for the build.
+    cmd /c "set NoDefaultCurrentDirectoryInExePath=& call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && cd /d `"$luajitSrc`" && call `"$luajitSrc\msvcbuild.bat`" static"
+    if (-not (Test-Path (Join-Path $luajitSrc 'luajit.exe'))) { throw 'LuaJIT build failed' }
+}
+
 # pret's Makefile runs under Linux (tools/docker_disasm.sh), so the disasm
 # checkout must keep LF endings even when core.autocrlf=true.
 $disasm = Join-Path $root 'disasm'

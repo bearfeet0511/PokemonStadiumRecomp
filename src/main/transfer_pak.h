@@ -7,4 +7,6 @@ namespace pkmnstadium::transfer_pak {
     // librecomp (gbcart.cpp / gbpak.cpp) — this is just the launcher integration.
     void initialize();
     bool has_transfer_pak(int port);
+    // Flushes the carts and merges Gen1Recomp slots back. Call once on quit.
+    void shutdown();
 }

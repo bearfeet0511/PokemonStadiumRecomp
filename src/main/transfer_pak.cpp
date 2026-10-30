@@ -21,6 +21,8 @@
 #include "librecomp/gbcart.hpp"
 
 #include "app_paths.h"
+#include "gen1recomp_bridge.h"
+#include "save_backup.h"
 
 namespace pkmnstadium::transfer_pak {
 namespace {
@@ -119,13 +121,28 @@ namespace {
         for (int port = 0; port < port_count; port++) {
             const std::filesystem::path rom =
                 port_path(port, "ROM", "rom", config, config_path.parent_path());
-            const std::filesystem::path save =
+            std::filesystem::path save =
                 port_path(port, "SAVE", "save", config, config_path.parent_path());
-            if (!rom.empty()) {
-                // Hand off to the shared cart model; it loads the file, picks the
-                // MBC, and logs "[gbcart] port N configured".
-                librecomp::gbcart::set_cart(port, rom, save);
+            if (rom.empty()) {
+                continue;
             }
+            if (save.empty()) {
+                // No save chosen: use <rom>.sav next to the ROM, the emulator
+                // convention, instead of memory-only cart RAM that is lost at exit.
+                save = rom;
+                save.replace_extension(".sav");
+            }
+            if (gen1recomp::is_slot(save)) {
+                save = gen1recomp::prepare_cart(port, save);
+                if (save.empty()) {
+                    continue;
+                }
+            } else {
+                backup_save(save, save.stem().string());
+            }
+            // Hand off to the shared cart model; it loads the file, picks the
+            // MBC, and logs "[gbcart] port N configured".
+            librecomp::gbcart::set_cart(port, rom, save);
         }
     }
 
@@ -141,5 +158,10 @@ void initialize() {
 bool has_transfer_pak(int port) {
     ensure_configured();
     return librecomp::gbcart::has_pak(port);
+}
+
+void shutdown() {
+    librecomp::gbcart::flush_all();
+    gen1recomp::finish_all();
 }
 }

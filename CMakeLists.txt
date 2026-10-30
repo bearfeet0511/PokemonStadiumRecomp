@@ -150,6 +150,8 @@ add_executable(PokemonStadiumRecomp
     src/main/aspmain_replay.cpp
     src/main/aspmain_refint.cpp
     src/main/transfer_pak.cpp
+    src/main/save_backup.cpp
+    src/main/gen1recomp_bridge.cpp
     src/main/gb_audio.cpp
     src/main/input_bindings.cpp
     src/main/audio_host_probe.cpp
@@ -317,6 +319,30 @@ target_sources(PokemonStadiumRecomp PRIVATE
 # recomp_target_launcher_ui() pins the target to C++17 (for ImGui); PSR's runner
 # needs C++20 (main.cpp), and ImGui compiles cleanly under 20, so restore it.
 set_target_properties(PokemonStadiumRecomp PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
+# ---- Gen1Recomp save support next to the executable ------------------------
+# LuaJIT + the pinned Gen1Recomp sources (provisioned into third_party/ by
+# tools/setup_libs.ps1) + our merge tool, run by gen1recomp_bridge.cpp to use a
+# Gen1Recomp slot as a Transfer Pak cart. Gen1Recomp is GPLv3 with attribution
+# terms; its LICENSE.MD ships alongside.
+set(GEN1RECOMP_SRC_DIR "${CMAKE_SOURCE_DIR}/third_party/gen1recomp")
+set(GEN1RECOMP_LUAJIT "${CMAKE_SOURCE_DIR}/third_party/luajit/src/luajit${CMAKE_EXECUTABLE_SUFFIX}")
+if(EXISTS "${GEN1RECOMP_SRC_DIR}/src" AND EXISTS "${GEN1RECOMP_LUAJIT}")
+    set(GEN1RECOMP_OUT "$<TARGET_FILE_DIR:PokemonStadiumRecomp>/gen1recomp")
+    add_custom_command(TARGET PokemonStadiumRecomp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${GEN1RECOMP_SRC_DIR}/src" "${GEN1RECOMP_OUT}/src"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${GEN1RECOMP_SRC_DIR}/tools/save_convert" "${GEN1RECOMP_OUT}/tools/save_convert"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${GEN1RECOMP_LUAJIT}"
+            "${GEN1RECOMP_SRC_DIR}/LICENSE.MD"
+            "${CMAKE_SOURCE_DIR}/tools/gen1recomp/merge.lua"
+            "${GEN1RECOMP_OUT}"
+    )
+else()
+    message(STATUS "Gen1Recomp save support not bundled: run tools/setup_libs.ps1")
+endif()
 
 # ---- UI assets (fonts, etc.) next to the executable ------------------------
 add_custom_command(TARGET PokemonStadiumRecomp POST_BUILD

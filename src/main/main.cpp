@@ -1450,9 +1450,11 @@ static void update_gfx(void*) {
             // So: signal quit (exited=true), then join the saving thread, which
             // flushes any pending save and returns quickly; THEN hard-exit past
             // the joins that hang. Transfer Pak (.sav) writes are already
-            // write-through (transfer_pak.cpp flushes after every block).
+            // write-through (transfer_pak.cpp flushes after every block);
+            // shutdown() merges carts backed by Gen1Recomp slots back into them.
             ultramodern::quit();
             ultramodern::join_saving_thread();
+            pkmnstadium::transfer_pak::shutdown();
             std::fflush(stdout);
             std::fflush(stderr);
             std::_Exit(0);
@@ -2495,5 +2497,6 @@ int main(int argc, char** argv) {
     );
 
     std::fprintf(stderr, "[PSR] recomp::start returned\n"); std::fflush(stderr);
+    pkmnstadium::transfer_pak::shutdown();
     return EXIT_SUCCESS;
 }

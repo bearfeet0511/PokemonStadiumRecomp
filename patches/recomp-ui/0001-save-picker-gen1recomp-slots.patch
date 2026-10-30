@@ -1,0 +1,19 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index b3d619d..1d4ecf2 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -1234,10 +1234,11 @@ void draw_tpak_modal(LauncherModel* m, const LauncherTheme& th) {
+         ImGui::TextUnformatted(elided);
+         const float bw = (ImGui::GetContentRegionAvail().x - px(th.spacing_sm)) * 0.5f;
+         if (ImGui::Button("Browse save...", ImVec2(bw, px(26)))) {
+-            static const char* kSavPatterns[] = { "*.sav", "*.srm" };
++            // *.lua: a Gen1Recomp save slot, converted by the host at boot.
++            static const char* kSavPatterns[] = { "*.sav", "*.srm", "*.lua" };
+             char buf[512];
+-            if (launcher_pick_file("Select battery save", kSavPatterns, 2,
+-                                   "Battery save (.sav)", buf, sizeof(buf)))
++            if (launcher_pick_file("Select battery save", kSavPatterns, 3,
++                                   "Battery save (.sav) or Gen1Recomp slot (.lua)", buf, sizeof(buf)))
+                 launcher_model_set_tpak_save(m, slot, buf);
+         }
+         ImGui::SameLine(0, px(th.spacing_sm));
