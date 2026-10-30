@@ -22,6 +22,15 @@ function Get-Repo($name, $url, $ref) {
     return $dir
 }
 
+# Applies this fork's fixes (patches\<name>\*.patch) to a checkout, skipping
+# any already applied.
+function Install-Patches($name, $dir) {
+    foreach ($patch in Get-ChildItem (Join-Path $root "patches\$name") -Filter *.patch) {
+        & git -C $dir apply --reverse --check $patch.FullName 2>$null
+        if ($LASTEXITCODE -ne 0) { Invoke-Git -C $dir apply $patch.FullName }
+    }
+}
+
 New-Item -ItemType Directory -Force $lib | Out-Null
 
 # Engine used to generate C from game.toml (n64recomp\, cloned by setup.bat).
@@ -34,11 +43,7 @@ if (Test-Path (Join-Path $n64recomp '.git')) {
 
 $runtime = Get-Repo 'N64ModernRuntime' 'https://github.com/mstan/N64ModernRuntime' 'd2aed7e'
 Invoke-Git -C $runtime submodule update --init thirdparty/miniz thirdparty/o1heap thirdparty/xxHash N64Recomp
-# Fork-local runtime fixes (patches\N64ModernRuntime). Skip any already applied.
-foreach ($patch in Get-ChildItem (Join-Path $root 'patches\N64ModernRuntime') -Filter *.patch) {
-    & git -C $runtime apply --reverse --check $patch.FullName 2>$null
-    if ($LASTEXITCODE -ne 0) { Invoke-Git -C $runtime apply $patch.FullName }
-}
+Install-Patches 'N64ModernRuntime' $runtime
 # The runtime's own engine copy must match the generator, since the generated
 # code compiles against its headers.
 $runtimeEngine = Join-Path $runtime 'N64Recomp'
@@ -48,16 +53,12 @@ Invoke-Git -C $runtimeEngine submodule update --init lib/ELFIO lib/fmt lib/rabbi
 
 $rt64 = Get-Repo 'rt64' 'https://github.com/mstan/rt64' 'b58c2f7'
 Invoke-Git -C $rt64 submodule update --init --recursive
+Install-Patches 'rt64' $rt64
 
 Get-Repo 'concurrentqueue' 'https://github.com/cameron314/concurrentqueue' $null | Out-Null
 Get-Repo 'SlotMap' 'https://github.com/SergeyMakeev/SlotMap' $null | Out-Null
 
-# Fork-local launcher fixes (patches\recomp-ui), e.g. picking Gen1Recomp slots.
-$recompUi = Join-Path $root 'recomp-ui'
-foreach ($patch in Get-ChildItem (Join-Path $root 'patches\recomp-ui') -Filter *.patch) {
-    & git -C $recompUi apply --reverse --check $patch.FullName 2>$null
-    if ($LASTEXITCODE -ne 0) { Invoke-Git -C $recompUi apply $patch.FullName }
-}
+Install-Patches 'recomp-ui' (Join-Path $root 'recomp-ui')
 
 # Gen1Recomp save support (third_party\, gitignored): the pinned Gen1Recomp
 # sources whose converter we run, and LuaJIT to run it. Only src\ and

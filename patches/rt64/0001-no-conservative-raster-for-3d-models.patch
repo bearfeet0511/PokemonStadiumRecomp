@@ -1,0 +1,25 @@
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 9ef6f83..a7a4e52 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1635,7 +1635,19 @@ namespace RT64 {
+                         const bool copyMode = (call.shaderDesc.otherMode.cycleType() == G_CYC_COPY);
+                         const bool isRect = (proj.type == Projection::Type::Rectangle);
+                         const bool alphaBlend = !copyMode && interop::Blender::usesAlphaBlend(call.shaderDesc.otherMode);
+-                        const bool noConservative = isRect || alphaBlend;
++                        // The seams it fixes are in flat 2D (orthographic) panels.
++                        // On perspective (3D) draws the overcoverage shows as
++                        // rainbow lines over the small model viewers (Pokedex,
++                        // rental details), so those get standard rasterization.
++                        // Compared side by side in-game: no other visible change.
++                        // RT64_CONSERVATIVE_PERSPECTIVE=1 restores the old
++                        // behavior (conservative for 3D too).
++                        static const bool s_noConservativePerspective = []() {
++                            const char* env = std::getenv("RT64_CONSERVATIVE_PERSPECTIVE");
++                            return !(env != nullptr && (env[0] == '1' || env[0] == 't' || env[0] == 'T'));
++                        }();
++                        const bool perspective = s_noConservativePerspective && (proj.type == Projection::Type::Perspective);
++                        const bool noConservative = isRect || alphaBlend || perspective;
+                         RasterShader *gpuShader = (p.ubershadersOnly || noConservative) ? nullptr : p.rasterShaderCache->getGPUShader(call.shaderDesc);
+                         if (gpuShader != nullptr) {
+                             triangles.pipeline = gpuShader->pipeline.get();

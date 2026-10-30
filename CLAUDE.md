@@ -62,8 +62,12 @@ Inspected from its readme, patch notes and text strings only (no ROMs touched). 
 - Gen1Recomp: https://github.com/bryanthaboi/gen1recomp . Check its license before reusing its .sav export logic. Pin to a known version; its format may change.
 - Note: an older Gen1Recomp version (0.1.54) had exported .sav files load into glitch city on real hardware (issue #691). Always test with backups.
 
+### Backlog (added 2026-10-30)
+- Graphics options: widescreen at minimum (RT64 supports it; Stadium's 2D menus/HUD need edge anchoring). An option in the launcher's Settings; default stays 4:3.
+- Easy install for non-developers: a downloadable Windows release (exe + DLLs + gen1recomp\ support files) on the fork's Releases page. Players only pick their own ROM in the launcher, as with other recomps; nobody else should need to build. Ideally built by GitHub Actions on a version tag, but recompiling needs the ROM's code, and ROMs must never enter the repo or CI logs. Work out how; the fallback is building locally and uploading the zip.
+
 ### Later / maybe
-- Stadium 2 (separate recomp of a different game; much of the platform work would carry over). Check state of any Stadium 2 decomp first.
+- Stadium 2 (separate recomp of a different game; much of the platform work would carry over). Check state of any Stadium 2 decomp first. The 3DS port's author (@dave_schobert) said Stadium 2 is his next port; watch it for findings. The same GPL source rules apply if he ships binaries.
 - Netplay. Large; only after everything else is solid. Intended design:
   - Each player's own cart appears as the other's controller 2 (P1 = host's cart, P2 = guest's cart on both machines).
   - On connect, exchange 32 KB GB saves only. Never send ROMs; each side supplies its own GB ROM and they compare a hash to confirm a match.

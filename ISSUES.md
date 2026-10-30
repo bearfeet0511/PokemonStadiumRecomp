@@ -17,7 +17,18 @@ see the depth-bounded tailcall fix below.
   announcer speech (and the crowd bed under moves) still carries
   static in battles. See the 2026-07-02 update entry below.
 - **#13 Free Battle → Rental roster → pokemon detail view crashes
-  (fragment eviction).** New, reproducible 3/3. See entry below.
+  (fragment eviction).** Upstream reproduced 3/3; **not reproducible on
+  this fork's build (2026-10-30, 2/2 runs)**. See entry below.
+- **Fork: rainbow lines in the small rotating model viewer** (Pokédex,
+  rental detail view) — **FIXED 2026-10-30.** Cause: conservative
+  rasterization (`TEMP_PATCHES.md`) on perspective draws. `patches/rt64/0001`
+  now applies it only to non-perspective triangles, the flat 2D panels whose
+  seams it was added for. Compared in-game in three modes (upstream /
+  no conservative for 3D / none): only the rainbow lines differ. The blocky
+  squares on the battle-town backdrop and the faint lines over the viewer
+  appear in all three, including upstream, so they're how the low-res art
+  looks scaled up, not a regression. `RT64_CONSERVATIVE_PERSPECTIVE=1`
+  restores the old behavior.
 
 **Just fixed 2026-06-05 (user-verified):** #12 — anti-aliasing default +
 supersampling now ship without breaking the 2D menus; see the FIXED entry
@@ -93,6 +104,19 @@ order.
   GB-cart/registered picks avoid the path (GB Tower regression-checked
   OK 2026-07-02). Suspect: runtime overlay-tier eviction choosing a
   section still on the active call path.
+
+  *Fork, 2026-10-30:* not reproducible on this fork's build, which uses
+  the v0.4.5-beta release refs (runtime `d2aed7e`, engine `2b949c5`, rt64
+  `b58c2f7`). Steps: fresh boot → Free Battle → Rental → R ("check") on the
+  2nd, 3rd and further Pokémon, plus checking every Pokémon while picking.
+  Two runs loaded fragment 0xEF 37 and 47 times into the shared model slot
+  (runtime `0x8046F950`), evicting the previous model each time, with no
+  crash. The only `get_function` misses were the four pre-existing,
+  trampoline-handled ones (`0x80276910`, `0x80553100`, `0x804FF060`,
+  `0x80282C40`), never #13's `0x801E40B8`/`0x801E4414`. Upstream's repro
+  ran a July 2 debug runtime with DMA-ring instrumentation; that may be the
+  difference. The 3DS port special-cases fragment 239 (= 0xEF) as "model
+  slot holds fragment id", which is the place to look if it comes back.
 
 **Original priority order (user-set 2026-05-28, superseded above for open work):**
 1. ~~Cursor / icon sprite corruption~~ — **FIXED 2026-05-28, user-confirmed.**
