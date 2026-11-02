@@ -1,0 +1,147 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index b3d619d..92109e0 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -1271,6 +1271,68 @@ void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
+     }
+ }
+ 
++// ---- ONLINE PLAY card (GameInfo.has_netplay; Pokemon Stadium) ---------------
++// Full-width card under the Transfer Pak row: an Off / Host / Join segmented
++// row plus the port and, when joining, the host's address. Edits
++// m->s.netplay_* directly; the host starts the session from them at Play.
++void panel_netplay_draw(LauncherModel* m, const LauncherTheme& th) {
++    if (!begin_panel("netplay", 0, false)) { end_panel(); return; }
++    eyebrow("ONLINE PLAY");
++
++    struct Seg { int mode; const char* label; };
++    static const Seg segs[] = { { 0, "Off" }, { 1, "Host" }, { 2, "Join" } };
++    const float gap = px(4.0f);
++    const float seg_w = px(96.0f);
++    for (int i = 0; i < 3; ++i) {
++        if (i) ImGui::SameLine(0, gap);
++        const bool sel = m->s.netplay_mode == segs[i].mode;
++        ImGui::PushID(i);
++        ImGui::PushStyleColor(ImGuiCol_Button, sel ? col(th.accent) : col(th.control));
++        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, sel ? col(th.accent) : col(th.control_hovered));
++        ImGui::PushStyleColor(ImGuiCol_ButtonActive, col(th.accent));
++        ImGui::PushStyleColor(ImGuiCol_Text, sel ? col(th.accent_text) : col(th.text));
++        if (ImGui::Button(segs[i].label, ImVec2(seg_w, px(28))))
++            m->s.netplay_mode = segs[i].mode;
++        ImGui::PopStyleColor(4);
++        ImGui::PopID();
++    }
++
++    if (m->s.netplay_mode == 2) {
++        ImGui::SameLine(0, px(th.spacing_md));
++        ImGui::SetNextItemWidth(px(220));
++        ImGui::InputTextWithHint("##np_addr", "Host's address, e.g. 203.0.113.5",
++                                 m->s.netplay_address, sizeof(m->s.netplay_address));
++    }
++    if (m->s.netplay_mode != 0) {
++        ImGui::SameLine(0, px(th.spacing_md));
++        ImGui::AlignTextToFramePadding();
++        ImGui::TextColored(col(th.text_muted), "Port");
++        ImGui::SameLine();
++        ImGui::SetNextItemWidth(px(90));
++        if (ImGui::InputInt("##np_port", &m->s.netplay_port, 0, 0)) {
++            if (m->s.netplay_port < 1) m->s.netplay_port = 1;
++            if (m->s.netplay_port > 65535) m->s.netplay_port = 65535;
++        }
++    }
++
++    ImGui::Dummy(ImVec2(0, px(4)));
++    if (m->s.netplay_mode == 1) {
++        ImGui::TextWrapped("You're player 1. Forward TCP port %d on your router to this PC, then give "
++                           "the other player your public IP address. Press Play to wait for them.",
++                           m->s.netplay_port);
++    } else if (m->s.netplay_mode == 2) {
++        ImGui::TextWrapped("You're player 2. Enter the host's public IP address and press Play. "
++                           "Both players need the same version.");
++    } else {
++        ImGui::TextColored(col(th.text_muted),
++                           "Play a friend over the internet: one player hosts, the other joins.");
++    }
++    if (m->s.netplay_mode != 0)
++        ImGui::TextColored(col(th.text_muted),
++                           "Transfer Pak carts stay unplugged in online games for now; use rentals.");
++    end_panel();
++}
++
+ // PSX-style 3-way pad-mode selector: Hybrid / Analog / D-Pad segmented row.
+ // Caller only draws this when pad_mode_supported && pad_mode_selectable (a
+ // locked mode draws nothing — there's nothing to pick). The Hybrid segment is
+@@ -1527,6 +1589,10 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
+             ImGui::Dummy(ImVec2(0, gap));
+             tpak_p->draw(m, &th);
+         }
++        if (m->has_netplay) {
++            ImGui::Dummy(ImVec2(0, gap));
++            panel_netplay_draw(m, th);
++        }
+     } else {
+         if (game_p) { g_game_fill_h = false; game_p->draw(m, &th); }
+         if (game_p && ctrl_p) ImGui::Spacing();
+@@ -1534,6 +1600,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
+         // Narrow single-column layout: memcards stack under the controller.
+         if (save_p) { ImGui::Spacing(); save_p->draw(m, &th); }
+         if (tpak_p) { ImGui::Spacing(); tpak_p->draw(m, &th); }
++        if (m->has_netplay) { ImGui::Spacing(); panel_netplay_draw(m, th); }
+     }
+ }
+ 
+diff --git a/src/common/launcher_model.c b/src/common/launcher_model.c
+index 967647d..91999c6 100644
+--- a/src/common/launcher_model.c
++++ b/src/common/launcher_model.c
+@@ -134,6 +134,7 @@ void launcher_model_init(LauncherModel* m,
+         m->num_renderers        = game->num_renderers;
+         m->hide_rebind          = game->hide_rebind != 0;
+         m->has_mouse_controls   = game->has_mouse_controls != 0;
++        m->has_netplay          = game->has_netplay != 0;
+     } else {
+         m->game_name    = "Unknown Game";
+         m->region       = "";
+diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
+index 1b09044..d972b26 100644
+--- a/src/common/launcher_model.h
++++ b/src/common/launcher_model.h
+@@ -190,6 +190,9 @@ typedef struct {
+     // _invert_x / _invert_y / _bind[]), like audio_device. False => none of
+     // the mouse surface composes and behavior is unchanged for every game.
+     bool has_mouse_controls;
++    // Borrowed capability flag (GameInfo.has_netplay): the dashboard shows the
++    // ONLINE PLAY card, which edits m->s.netplay_* directly.
++    bool has_netplay;
+     // Game-supplied aspect vocabulary (GameInfo.aspect_labels): when set,
+     // the aspect cycle walks these 0..num_aspect_labels-1 instead of the
+     // built-in 4:3/16:9/21:9 mask set; aspect_experimental tags the row.
+diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
+index a0bc3a2..7c84c30 100644
+--- a/src/recomp_launcher.h
++++ b/src/recomp_launcher.h
+@@ -126,6 +126,13 @@ typedef struct RecompLauncherCSettings {
+     // In a window, the fixed aspect selects the initial size before live
+     // resizing takes over. Adaptive + fullscreen ignores the fixed aspect.
+     int  adaptive_view;       // bool: logical width follows host drawable aspect
++
++    // ---- online play (GameInfo.has_netplay games; Pokemon Stadium) ---------
++    // Edited by the dashboard's ONLINE PLAY card; the host maps them onto its
++    // own netplay session at Play. Appended additively, same ABI convention.
++    int  netplay_mode;          // 0 = off, 1 = host, 2 = join
++    char netplay_address[256];  // join: the host's address (IP or name)
++    int  netplay_port;          // TCP port; the host seeds its default
+ } RecompLauncherCSettings;
+ 
+ // ---- host verification/inspection results (filled by the callbacks below) ----
+@@ -333,6 +340,10 @@ typedef struct RecompLauncherCGameInfo {
+     // an Adaptive view toggle. Adaptive + fullscreen leaves the fixed aspect
+     // control visible but disabled because the display chooses the live width.
+     int  adaptive_view_supported;
++
++    // 1 = show the dashboard's ONLINE PLAY card (Settings.netplay_*). 0 (the
++    // memset default) => no card; every other game is unchanged.
++    int  has_netplay;
+ } RecompLauncherCGameInfo;
+ 
+ // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),

@@ -36,6 +36,7 @@ constexpr socket_t INVALID_SOCKET = -1;
 
 #include <SDL.h>
 
+#include "app_paths.h"
 #include "transfer_pak.h"
 
 extern "C" uint8_t* recomp_runtime_get_rdram(void);
@@ -477,8 +478,10 @@ namespace {
             fail(std::string("Both players need the same build. Yours: ") + mine.commit +
                  ", theirs: " + theirs.commit + ".");
         }
+        // Carts stay unplugged in online play for now: controller_present()
+        // reports no pak on any port, so both games boot identically.
         if (mine.carts || theirs.carts) {
-            fail("Transfer Pak carts aren't supported in netplay yet. Both players need to remove their carts.");
+            log("Transfer Pak carts are configured but stay unplugged during online play");
         }
         if (host) {
             const std::vector<char> save = read_stadium_save();
@@ -508,16 +511,53 @@ namespace {
     }
 }
 
+namespace {
+    // The launcher's ONLINE PLAY card, saved in launcher.cfg as
+    // netplay=off|host|join, netplay_address, netplay_port. Returns the same
+    // spec format as PSR_NETPLAY, or "" when online play is off.
+    std::string spec_from_launcher() {
+        std::ifstream file(exe_dir() / "launcher.cfg");
+        std::string line, mode = "off", address, port = "7311";
+        while (std::getline(file, line)) {
+            const size_t eq = line.find('=');
+            if (line.empty() || line[0] == '#' || eq == std::string::npos) {
+                continue;
+            }
+            const std::string key = line.substr(0, eq);
+            std::string value = line.substr(eq + 1);
+            while (!value.empty() && (value.back() == '\r' || value.back() == ' ')) {
+                value.pop_back();
+            }
+            if (key == "netplay") mode = value;
+            else if (key == "netplay_address") address = value;
+            else if (key == "netplay_port" && !value.empty()) port = value;
+        }
+        if (mode == "host") {
+            return "host:" + port;
+        }
+        if (mode == "join") {
+            if (address.empty()) {
+                fail("Online play is set to Join, but no host address was entered. "
+                     "Type the host's address in the launcher's ONLINE PLAY card.");
+            }
+            return "join:" + address + ":" + port;
+        }
+        return "";
+    }
+}
+
 bool active() {
     return session.active;
 }
 
 void start() {
+    // PSR_NETPLAY (test scripts, shortcuts) overrides the launcher's setting.
     const char* setting = std::getenv("PSR_NETPLAY");
-    if (setting == nullptr || setting[0] == '\0') {
+    const std::string spec = (setting != nullptr && setting[0] != '\0') ? std::string(setting)
+                                                                       : spec_from_launcher();
+    if (spec.empty()) {
         return;
     }
-    const std::string spec = setting;
     const bool host = spec.rfind("host:", 0) == 0;
     const bool join = spec.rfind("join:", 0) == 0;
     if (!host && !join) {

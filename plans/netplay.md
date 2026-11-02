@@ -73,7 +73,13 @@ same inputs; only audio, profiler and OS memory differ.
   waiting" lines during a stall. The "Hosting"/"Connecting" messages have a
   Cancel button that quits; previously closing them left an invisible
   process holding the port.
-- Release zip (`_package_release.ps1`) includes `Netplay - Host.bat`,
+- Launcher ONLINE PLAY card (`patches/recomp-ui/0002`, `has_netplay`): Off /
+  Host / Join, address and port, saved in `launcher.cfg` (`netplay=`,
+  `netplay_address=`, `netplay_port=`) and read by `netplay::start` at Play;
+  `PSR_NETPLAY` still overrides. Configured Transfer Pak carts no longer
+  block a session; they stay unplugged online (no pak reported on any port).
+  The `.bat` shortcuts were dropped from the release in favor of the card.
+- (Earlier) release zip (`_package_release.ps1`) includes `Netplay - Host.bat`,
   `Netplay - Join.bat` and `NETPLAY.txt` from `tools\release\`.
 
 ## Later slices

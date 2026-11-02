@@ -6,8 +6,11 @@
 // TCP connection the host makes reachable by forwarding a port. Design and
 // slice plan: plans/netplay.md.
 //
-// Enabled by PSR_NETPLAY=host:<port> or PSR_NETPLAY=join:<address>:<port>;
-// PSR_NETPLAY_DELAY=<reads> sets the input delay (default 2).
+// Configured in the launcher's ONLINE PLAY card (launcher.cfg netplay=,
+// netplay_address=, netplay_port=). PSR_NETPLAY=host:<port> or
+// join:<address>:<port> overrides it; PSR_NETPLAY_DELAY=<reads> fixes the
+// input delay (otherwise measured at connect); PSR_NETPLAY_LATENCY_MS
+// simulates network latency for local testing.
 namespace pkmnstadium::netplay {
     // Reads the local controller (the device this machine's launcher assigns
     // to player 1) into the outputs; returns whether one is connected.

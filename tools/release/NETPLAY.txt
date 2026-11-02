@@ -1,39 +1,42 @@
-Pokemon Stadium Recomp - netplay (test build)
-=============================================
+Pokemon Stadium Recomp - online play (test build)
+=================================================
 
 Two players, each on their own PC, over the internet.
 
 Before you start (both players)
 - Everyone needs their own Pokemon Stadium (USA) v1.0 ROM. No ROMs are
   included. Later revisions ("Rev 1", "Rev 2") don't work.
-- Run PokemonStadiumRecomp.exe once and choose your ROM in the launcher.
+- Run PokemonStadiumRecomp.exe and choose your ROM in the launcher.
 - Both players must use this exact same download. A different build is
   refused.
-- No Transfer Pak carts yet: leave the Transfer Pak settings empty. Use
-  rental Pokemon for now.
+- Online games use rental Pokemon for now: any Transfer Pak carts you set
+  up stay unplugged during online play.
 
 Host (player 1)
 1. Forward TCP port 7311 on your router to this PC. If Windows Firewall
    asks, allow it on Private networks.
 2. Find your public IP address (search "what is my IP") and send it to
    the other player.
-3. Double-click "Netplay - Host.bat" and press Play in the launcher. A
+3. In the launcher's ONLINE PLAY card, choose Host and press Play. A
    "Hosting" message shows while you wait; the game starts when the other
    player joins.
 
 Guest (player 2)
-1. Double-click "Netplay - Join.bat" and type the host's address.
-2. Press Play in the launcher. A "Connecting" message shows; it keeps
-   trying for a minute while the host gets ready.
+1. In the launcher's ONLINE PLAY card, choose Join and type the host's
+   address.
+2. Press Play. A "Connecting" message shows; it keeps trying for a minute
+   while the host gets ready.
+
+The launcher remembers these settings. Choose Off to play on your own again.
 
 During the game
 - Each player uses their own controller (whatever the launcher sets as
   player 1 on their PC).
 - The guest plays on a copy of the host's Stadium save; the guest's own
   save isn't changed.
-- The input delay is set automatically from the connection's latency, so
-  on a slow connection your presses take effect a few frames later. If one
-  game is slow, both wait for it. That's normal.
+- The input delay is set automatically from the connection, so on a slow
+  or jittery connection your presses take effect a few frames later. If
+  one game is slow, both wait for it. That's normal.
 - "The two games went out of sync" means a desync bug. Please report what
   you were doing.
 - Closing either window ends the session for both.

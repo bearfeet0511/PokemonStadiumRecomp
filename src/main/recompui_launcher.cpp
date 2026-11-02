@@ -244,6 +244,16 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
     if (cfg.count("autoplay")) {
         s.skip_launcher = parse_bool(cfg["autoplay"], false) ? 1 : 0;
     }
+    // Online play (netplay.cpp reads the same keys at Play).
+    const std::string netplay = cfg.count("netplay") ? to_lower_str(cfg["netplay"]) : "off";
+    s.netplay_mode = (netplay == "host") ? 1 : (netplay == "join") ? 2 : 0;
+    if (cfg.count("netplay_address")) {
+        set_str(s.netplay_address, sizeof(s.netplay_address), cfg["netplay_address"]);
+    }
+    s.netplay_port = cfg.count("netplay_port") ? std::atoi(cfg["netplay_port"].c_str()) : 0;
+    if (s.netplay_port < 1 || s.netplay_port > 65535) {
+        s.netplay_port = 7311;
+    }
 }
 
 // Persist a committed RecompLauncherCSettings back to launcher.cfg, using the
@@ -299,6 +309,10 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "audio_device=" << s.audio_device << "\n";
     f << "# autoplay=on|off : skip the launcher next time (recomp-ui skip flag).\n";
     f << "autoplay=" << (s.skip_launcher ? "on" : "off") << "\n";
+    f << "# netplay=off|host|join : online play; netplay_address is the host to join.\n";
+    f << "netplay=" << (s.netplay_mode == 1 ? "host" : s.netplay_mode == 2 ? "join" : "off") << "\n";
+    f << "netplay_address=" << s.netplay_address << "\n";
+    f << "netplay_port=" << s.netplay_port << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------
@@ -356,6 +370,7 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     gi.num_players  = 4;
     gi.tpak_slots   = 4;
     gi.tpak_inspect = &tpak_inspect;
+    gi.has_netplay  = 1;
     gi.hide_rebind  = 0;
     gi.sram_path    = nullptr; // Stadium manages its own FlashRAM save
 

@@ -8,11 +8,12 @@
 #   ... compare    # first poll where the runs' state hashes differ
 #   ... netplay    # a hosts and b joins over localhost (b plays on keyboard);
 #                  # -LatencyMs <n> delays each side's incoming input like a real network
+#   ... launch     # open a and b with no netplay override (set it up in the launcher)
 #
 # Each instance runs from its own folder under third_party\work\np\ (config,
 # Stadium save and logs live next to the exe), all starting from the same
 # Stadium save snapshot, with the Transfer Pak off and the launcher skipped.
-param([Parameter(Mandatory)][ValidateSet('setup', 'record', 'replay', 'compare', 'netplay')][string]$Step,
+param([Parameter(Mandatory)][ValidateSet('setup', 'record', 'replay', 'compare', 'netplay', 'launch')][string]$Step,
       [int]$DumpAt = -1,
       [int]$LatencyMs = 0)
 
@@ -100,6 +101,14 @@ switch ($Step) {
                                          PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
         $b = Start-Instance 'b' 4383 @{ PSR_NETPLAY = 'join:127.0.0.1:7311'; PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
         Write-Host "host a (pid $($a.Id)), guest b (pid $($b.Id))"
+    }
+    'launch' {
+        foreach ($name in 'a', 'b') { Reset-Save $name }
+        $bConfig = Join-Path $np 'b\launcher.cfg'
+        (Get-Content $bConfig) -replace '^p1_device=.*', 'p1_device=1' | Set-Content $bConfig -Encoding ascii
+        $a = Start-Instance 'a' 4382 @{}
+        $b = Start-Instance 'b' 4383 @{}
+        Write-Host "a (pid $($a.Id)), b (pid $($b.Id))"
     }
     'compare' {
         $py = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'
