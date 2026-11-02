@@ -154,6 +154,7 @@ add_executable(PokemonStadiumRecomp
     src/main/gen1recomp_bridge.cpp
     src/main/netplay_probe.cpp
     src/main/netplay.cpp
+    src/main/update_check.cpp
     src/main/gb_audio.cpp
     src/main/input_bindings.cpp
     src/main/audio_host_probe.cpp
@@ -255,7 +256,7 @@ if (WIN32)
     # the entry point (SDL.h does not redirect it to SDL_main). opengl32 backs the
     # launcher's GL window (imgui_impl_opengl3 + launcher_gl.c). comdlg32/ole32
     # also back tinyfiledialogs' native file pickers.
-    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib ws2_32.lib)
+    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib ws2_32.lib winhttp.lib)
 endif()
 
 target_link_libraries(PokemonStadiumRecomp PRIVATE
@@ -333,7 +334,7 @@ execute_process(
 if(NOT PSR_GIT_COMMIT)
     set(PSR_GIT_COMMIT "unknown")
 endif()
-set_source_files_properties(src/main/netplay.cpp PROPERTIES
+set_source_files_properties(src/main/netplay.cpp src/main/update_check.cpp PROPERTIES
     COMPILE_DEFINITIONS "PSR_GIT_COMMIT=\"${PSR_GIT_COMMIT}\"")
 
 # ---- Gen1Recomp save support next to the executable ------------------------

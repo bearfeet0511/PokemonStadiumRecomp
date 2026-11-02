@@ -30,6 +30,7 @@
 #include <SDL.h>
 
 #include "recomp_launcher.h"   // recomp-ui C ABI (recomp_launcher_run_window)
+#include "update_check.h"
 #include "launcher_profile.h"  // launcher_profile_apply("n64", &gi)
 
 #include "app_paths.h"         // pkmnstadium::exe_dir()
@@ -258,6 +259,7 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
     if (s.netplay_players < 2 || s.netplay_players > 4) {
         s.netplay_players = 2;
     }
+    s.no_update_check = (cfg.count("check_updates") && !parse_bool(cfg["check_updates"], true)) ? 1 : 0;
 }
 
 // Persist a committed RecompLauncherCSettings back to launcher.cfg, using the
@@ -319,6 +321,8 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "netplay_port=" << s.netplay_port << "\n";
     f << "# netplay_players=2..4 : how many players a hosted session waits for.\n";
     f << "netplay_players=" << s.netplay_players << "\n";
+    f << "# check_updates=on|off : look for a newer release on GitHub when the launcher opens.\n";
+    f << "check_updates=" << (s.no_update_check ? "off" : "on") << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------
@@ -377,6 +381,12 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     gi.tpak_slots   = 4;
     gi.tpak_inspect = &tpak_inspect;
     gi.has_netplay  = 1;
+    // "Update available" banner: online play needs everyone on the same build.
+    gi.update_notice = &pkmnstadium::update_check::notice;
+    gi.open_url      = &pkmnstadium::update_check::open_url;
+    if (!settings.no_update_check) {
+        pkmnstadium::update_check::start();
+    }
     gi.hide_rebind  = 0;
     gi.sram_path    = nullptr; // Stadium manages its own FlashRAM save
 

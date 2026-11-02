@@ -40,6 +40,7 @@ constexpr socket_t INVALID_SOCKET = -1;
 
 #include "app_paths.h"
 #include "transfer_pak.h"
+#include "update_check.h"
 
 extern "C" uint8_t* recomp_runtime_get_rdram(void);
 
@@ -486,8 +487,9 @@ namespace {
             fail("The other side isn't running a compatible version of Pokemon Stadium Recomp.");
         }
         if (std::strcmp(theirs.commit, mine.commit) != 0) {
-            fail(std::string("Everyone needs the same build. Yours: ") + mine.commit +
-                 ", theirs: " + theirs.commit + ".");
+            fail(std::string("Everyone needs the same version. Download the latest test build from\n") +
+                 update_check::releases_page + "\n\n(Yours: " + std::string(mine.commit).substr(0, 7) +
+                 ", theirs: " + std::string(theirs.commit).substr(0, 7) + ")");
         }
         // Carts stay unplugged in online play for now: controller_present()
         // reports no pak on any port, so every game boots identically.
