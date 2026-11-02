@@ -59,6 +59,15 @@ same inputs; only audio, profiler and OS memory differ.
   the time spent waiting; measured, it picked delay 6 and ran at 30 reads/s
   with 0 ms waiting. A waiting game thread stalls the other guest threads
   too, so any wait shows up as low frame rate.
+- Test 2 over the internet (2026-11-01, guest on poor Wi-Fi): a full rental
+  battle, ~11,700 reads at 30 reads/s, no desync. Round trip 29 ms gave
+  delay 3. Hitches came from network spikes (both logs waiting at the same
+  time, up to ~220 ms around read 3,000 and ~90 ms around 7,400-8,000), not
+  from either PC stalling.
+- Jitter-aware delay: 10 pings spread over ~1 s, delay from the
+  second-slowest (~90th percentile); the log shows best / median / slow.
+  Absorbing big spikes entirely would need rollback (save/restore of the
+  whole game state), which is out of scope for now.
 - `netplay.log` next to the exe: connection steps, pacing every 100 reads
   (rate, wait, how far the other side has sent) and periodic "still
   waiting" lines during a stall. The "Hosting"/"Connecting" messages have a

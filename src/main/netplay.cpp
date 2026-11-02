@@ -63,7 +63,11 @@ namespace {
     };
     // Input delay from measured latency: enough reads of lead time to cover
     // the one-way trip at about 30 controller reads per second, plus margin.
-    constexpr int ping_count = 5;
+    // Pings are spread over about a second and the delay follows the slow
+    // ones (second-slowest of ping_count, ~90th percentile), so Wi-Fi jitter
+    // is covered while a single freak spike doesn't inflate it.
+    constexpr int ping_count = 10;
+    constexpr auto ping_spacing = std::chrono::milliseconds(100);
     constexpr double ms_per_read = 1000.0 / 30.0;
     constexpr uint32_t delay_margin = 2;
     constexpr uint32_t max_delay = 20;
@@ -414,8 +418,11 @@ namespace {
     // Host side: measure the round trip and set the input delay both sides
     // use, unless PSR_NETPLAY_DELAY fixed it.
     void choose_delay() {
-        double best_rtt_ms = 1e9;
+        std::vector<double> rtts_ms;
         for (int i = 0; i < ping_count; i++) {
+            if (i > 0) {
+                std::this_thread::sleep_for(ping_spacing);
+            }
             const uint32_t seq = static_cast<uint32_t>(i);
             const auto sent = std::chrono::steady_clock::now();
             Header header;
@@ -425,18 +432,22 @@ namespace {
                 fail("Lost the connection while measuring latency.");
             }
             std::this_thread::sleep_for(session.latency); // simulated guest-to-host trip
-            best_rtt_ms = std::min(best_rtt_ms, std::chrono::duration<double, std::milli>(
+            rtts_ms.push_back(std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - sent).count());
         }
+        std::sort(rtts_ms.begin(), rtts_ms.end());
+        const double slow_rtt_ms = rtts_ms[rtts_ms.size() - 2];
         if (session.fixed_delay == 0) {
-            const auto lead = static_cast<uint32_t>(std::ceil(best_rtt_ms / 2.0 / ms_per_read));
+            const auto lead = static_cast<uint32_t>(std::ceil(slow_rtt_ms / 2.0 / ms_per_read));
             session.delay = std::min(max_delay, std::max(default_delay, lead + delay_margin));
         } else {
             session.delay = session.fixed_delay;
         }
-        char line[160];
-        std::snprintf(line, sizeof(line), "round trip %.0f ms -> input delay %u reads%s",
-                      best_rtt_ms, session.delay, session.fixed_delay ? " (fixed by PSR_NETPLAY_DELAY)" : "");
+        char line[200];
+        std::snprintf(line, sizeof(line),
+                      "round trip best %.0f / median %.0f / slow %.0f ms -> input delay %u reads%s",
+                      rtts_ms.front(), rtts_ms[rtts_ms.size() / 2], slow_rtt_ms, session.delay,
+                      session.fixed_delay ? " (fixed by PSR_NETPLAY_DELAY)" : "");
         log(line);
         send_message(MSG_DELAY, &session.delay, sizeof(session.delay));
     }
