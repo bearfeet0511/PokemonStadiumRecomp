@@ -384,6 +384,7 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     // "Update available" banner: online play needs everyone on the same build.
     gi.update_notice = &pkmnstadium::update_check::notice;
     gi.open_url      = &pkmnstadium::update_check::open_url;
+    gi.start_update  = &pkmnstadium::update_check::start_update;
     if (!settings.no_update_check) {
         pkmnstadium::update_check::start();
     }

@@ -1,5 +1,5 @@
 diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
-index b3d619d..a786012 100644
+index b3d619d..78954f2 100644
 --- a/src/common/backends/imgui/launcher_imgui.cpp
 +++ b/src/common/backends/imgui/launcher_imgui.cpp
 @@ -1271,6 +1271,96 @@ void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
@@ -99,7 +99,7 @@ index b3d619d..a786012 100644
  // PSX-style 3-way pad-mode selector: Hybrid / Analog / D-Pad segmented row.
  // Caller only draws this when pad_mode_supported && pad_mode_selectable (a
  // locked mode draws nothing — there's nothing to pick). The Hybrid segment is
-@@ -1445,7 +1535,26 @@ void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
+@@ -1445,7 +1535,36 @@ void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {
  // (SAVES only when the game has SRAM, folded into the GAME card — see
  // draw_save_row). A different system's profile simply contributes a
  // different panel list.
@@ -108,15 +108,25 @@ index b3d619d..a786012 100644
 +// update checks off).
 +void draw_update_banner(LauncherModel* m, const LauncherTheme& th) {
 +    if (!m->update_notice_cb || m->s.no_update_check) return;
-+    char text[160], url[256];
-+    if (!m->update_notice_cb(text, sizeof(text), url, sizeof(url))) return;
++    char text[200], url[256];
++    const int state = m->update_notice_cb(text, sizeof(text), url, sizeof(url));
++    if (state == 0) return;
 +    if (!begin_panel("update", 0, false)) { end_panel(); return; }
-+    const float bw = px(110);
++    const float bw = px(120);
++    const bool can_update = state == 1 && m->start_update_cb;
++    const bool show_page = state != 2 && m->open_url_cb;
++    const int buttons = (can_update ? 1 : 0) + (show_page ? 1 : 0);
++    const float buttons_w = buttons * bw + (buttons > 1 ? px(th.spacing_sm) : 0.0f);
 +    ImGui::AlignTextToFramePadding();
-+    ImGui::TextColored(col(th.warn), "%s", text);
-+    ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw);
-+    if (ImGui::Button("Download", ImVec2(bw, px(28))) && m->open_url_cb)
-+        m->open_url_cb(url);
++    ImGui::TextColored(state == 3 ? col(th.accent) : col(th.warn), "%s", text);
++    if (buttons) {
++        ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - buttons_w);
++        if (can_update && ImGui::Button("Update", ImVec2(bw, px(28))))
++            m->start_update_cb();
++        if (can_update && show_page) ImGui::SameLine(0, px(th.spacing_sm));
++        if (show_page && ImGui::Button("Release page", ImVec2(bw, px(28))))
++            m->open_url_cb(url);
++    }
 +    end_panel();
 +    ImGui::Dummy(ImVec2(0, px(th.spacing_sm)));
 +}
@@ -126,7 +136,7 @@ index b3d619d..a786012 100644
      const SystemProfile* prof = (const SystemProfile*)m->profile;
      const LauncherPanel* game_p = find_composed(prof->panels_dashboard, "game", m);
      const LauncherPanel* ctrl_p = find_composed(prof->panels_dashboard, "controller", m);
-@@ -1527,6 +1636,10 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
+@@ -1527,6 +1646,10 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
              ImGui::Dummy(ImVec2(0, gap));
              tpak_p->draw(m, &th);
          }
@@ -137,7 +147,7 @@ index b3d619d..a786012 100644
      } else {
          if (game_p) { g_game_fill_h = false; game_p->draw(m, &th); }
          if (game_p && ctrl_p) ImGui::Spacing();
-@@ -1534,6 +1647,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
+@@ -1534,6 +1657,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
          // Narrow single-column layout: memcards stack under the controller.
          if (save_p) { ImGui::Spacing(); save_p->draw(m, &th); }
          if (tpak_p) { ImGui::Spacing(); tpak_p->draw(m, &th); }
@@ -146,24 +156,25 @@ index b3d619d..a786012 100644
  }
  
 diff --git a/src/common/launcher_model.c b/src/common/launcher_model.c
-index 967647d..400cd0b 100644
+index 967647d..aadfb8f 100644
 --- a/src/common/launcher_model.c
 +++ b/src/common/launcher_model.c
-@@ -134,6 +134,9 @@ void launcher_model_init(LauncherModel* m,
+@@ -134,6 +134,10 @@ void launcher_model_init(LauncherModel* m,
          m->num_renderers        = game->num_renderers;
          m->hide_rebind          = game->hide_rebind != 0;
          m->has_mouse_controls   = game->has_mouse_controls != 0;
 +        m->has_netplay          = game->has_netplay != 0;
 +        m->update_notice_cb     = game->update_notice;
 +        m->open_url_cb          = game->open_url;
++        m->start_update_cb      = game->start_update;
      } else {
          m->game_name    = "Unknown Game";
          m->region       = "";
 diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
-index 1b09044..82f708c 100644
+index 1b09044..a234a32 100644
 --- a/src/common/launcher_model.h
 +++ b/src/common/launcher_model.h
-@@ -190,6 +190,13 @@ typedef struct {
+@@ -190,6 +190,14 @@ typedef struct {
      // _invert_x / _invert_y / _bind[]), like audio_device. False => none of
      // the mouse surface composes and behavior is unchanged for every game.
      bool has_mouse_controls;
@@ -174,11 +185,12 @@ index 1b09044..82f708c 100644
 +    // dashboard's "update available" banner. NULL => no banner.
 +    int  (*update_notice_cb)(char* text, size_t text_cap, char* url, size_t url_cap);
 +    void (*open_url_cb)(const char* url);
++    void (*start_update_cb)(void);
      // Game-supplied aspect vocabulary (GameInfo.aspect_labels): when set,
      // the aspect cycle walks these 0..num_aspect_labels-1 instead of the
      // built-in 4:3/16:9/21:9 mask set; aspect_experimental tags the row.
 diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
-index a0bc3a2..a8004bc 100644
+index a0bc3a2..10cc25b 100644
 --- a/src/recomp_launcher.h
 +++ b/src/recomp_launcher.h
 @@ -126,6 +126,19 @@ typedef struct RecompLauncherCSettings {
@@ -201,7 +213,7 @@ index a0bc3a2..a8004bc 100644
  } RecompLauncherCSettings;
  
  // ---- host verification/inspection results (filled by the callbacks below) ----
-@@ -333,6 +346,18 @@ typedef struct RecompLauncherCGameInfo {
+@@ -333,6 +346,22 @@ typedef struct RecompLauncherCGameInfo {
      // an Adaptive view toggle. Adaptive + fullscreen leaves the fixed aspect
      // control visible but disabled because the display chooses the live width.
      int  adaptive_view_supported;
@@ -212,11 +224,15 @@ index a0bc3a2..a8004bc 100644
 +
 +    // ---- update notice (optional) ------------------------------------------
 +    // Polled every frame. The HOST checks for a newer release however it likes
-+    // (e.g. in the background) and returns 1 with a one-line text and a
-+    // download page URL once one is known, 0 otherwise. The dashboard shows a
-+    // banner with a Download button that calls open_url. NULL => no banner.
++    // (e.g. in the background) and fills a one-line text plus the release
++    // page URL. Returns 0 = nothing to show, 1 = update available (banner
++    // offers Update -> start_update, and Release page -> open_url),
++    // 2 = updating (text shows progress, no buttons), 3 = update failed
++    // (Release page only). NULL => no banner. start_update may be NULL (then
++    // only Release page is offered).
 +    int  (*update_notice)(char* text, size_t text_cap, char* url, size_t url_cap);
 +    void (*open_url)(const char* url);
++    void (*start_update)(void);
  } RecompLauncherCGameInfo;
  
  // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),

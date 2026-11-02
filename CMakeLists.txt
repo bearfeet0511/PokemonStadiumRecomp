@@ -256,7 +256,7 @@ if (WIN32)
     # the entry point (SDL.h does not redirect it to SDL_main). opengl32 backs the
     # launcher's GL window (imgui_impl_opengl3 + launcher_gl.c). comdlg32/ole32
     # also back tinyfiledialogs' native file pickers.
-    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib ws2_32.lib winhttp.lib)
+    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib ws2_32.lib winhttp.lib bcrypt.lib miniz)
 endif()
 
 target_link_libraries(PokemonStadiumRecomp PRIVATE
