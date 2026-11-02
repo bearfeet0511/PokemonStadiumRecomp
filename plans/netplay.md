@@ -48,6 +48,22 @@ same inputs; only audio, profiler and OS memory differ.
   its own save. Saves no longer have to match. A goodbye message lets the
   other side say "the other player left". The host shows a "Hosting on port"
   message while it waits.
+- Test 1 over the internet (2026-11-01): the connection, handshake and save
+  transfer worked and both games started, then both froze after the N64
+  logo (black screen, looping audio = game thread waiting on netplay).
+  Cause not yet known.
+- Protocol 3: the host pings 5 times at connect and sets the input delay to
+  cover the one-way trip at ~30 reads/s, plus 2 (`PSR_NETPLAY_DELAY`
+  overrides). With a fixed delay of 2, 100 ms of simulated latency
+  (`PSR_NETPLAY_LATENCY_MS`) dropped the game to ~23 reads/s with 65% of
+  the time spent waiting; measured, it picked delay 6 and ran at 30 reads/s
+  with 0 ms waiting. A waiting game thread stalls the other guest threads
+  too, so any wait shows up as low frame rate.
+- `netplay.log` next to the exe: connection steps, pacing every 100 reads
+  (rate, wait, how far the other side has sent) and periodic "still
+  waiting" lines during a stall. The "Hosting"/"Connecting" messages have a
+  Cancel button that quits; previously closing them left an invisible
+  process holding the port.
 - Release zip (`_package_release.ps1`) includes `Netplay - Host.bat`,
   `Netplay - Join.bat` and `NETPLAY.txt` from `tools\release\`.
 

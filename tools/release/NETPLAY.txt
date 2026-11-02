@@ -31,7 +31,14 @@ During the game
   player 1 on their PC).
 - The guest plays on a copy of the host's Stadium save; the guest's own
   save isn't changed.
-- If one game is slow, both wait for it. That's normal.
+- The input delay is set automatically from the connection's latency, so
+  on a slow connection your presses take effect a few frames later. If one
+  game is slow, both wait for it. That's normal.
 - "The two games went out of sync" means a desync bug. Please report what
   you were doing.
 - Closing either window ends the session for both.
+
+If something goes wrong
+- Each player has a netplay.log next to PokemonStadiumRecomp.exe. Send
+  both logs along with what you were doing (freeze, crash, out-of-sync
+  message, slowness).

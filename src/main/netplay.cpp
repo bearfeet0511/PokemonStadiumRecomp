@@ -1,5 +1,9 @@
 #include "netplay.h"
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -43,7 +47,7 @@ extern "C" uint8_t* recomp_runtime_get_rdram(void);
 namespace pkmnstadium::netplay {
 namespace {
     constexpr uint32_t magic = 0x4E525350; // "PSRN"
-    constexpr uint32_t protocol_version = 2;
+    constexpr uint32_t protocol_version = 3;
     constexpr const char* stadium_save_name = "pokestadium.us.1.0.bin";
     constexpr uint32_t default_delay = 2;
     constexpr uint32_t hash_interval = 120;
@@ -53,7 +57,16 @@ namespace {
     constexpr uint32_t heap_start = 0x00100000;
     constexpr uint32_t heap_end = 0x00800000;
 
-    enum MessageType : uint8_t { MSG_HELLO = 1, MSG_INPUT = 2, MSG_HASH = 3, MSG_SAVE = 4, MSG_BYE = 5 };
+    enum MessageType : uint8_t {
+        MSG_HELLO = 1, MSG_INPUT = 2, MSG_HASH = 3, MSG_SAVE = 4, MSG_BYE = 5,
+        MSG_PING = 6, MSG_PONG = 7, MSG_DELAY = 8,
+    };
+    // Input delay from measured latency: enough reads of lead time to cover
+    // the one-way trip at about 30 controller reads per second, plus margin.
+    constexpr int ping_count = 5;
+    constexpr double ms_per_read = 1000.0 / 30.0;
+    constexpr uint32_t delay_margin = 2;
+    constexpr uint32_t max_delay = 20;
 
 #pragma pack(push, 1)
     struct Header {
@@ -91,6 +104,7 @@ namespace {
         int local_port = 0;
         int remote_port = 1;
         uint32_t delay = default_delay;
+        uint32_t fixed_delay = 0; // PSR_NETPLAY_DELAY; 0 = from measured latency
         socket_t sock = INVALID_SOCKET;
         std::thread receiver;
         std::mutex mutex;
@@ -99,16 +113,42 @@ namespace {
         bool connected = false;
         bool other_left = false;
         uint32_t reads[2] = {};
+        // Highest input read received from the other side: how far its game has gotten.
+        uint32_t remote_latest = 0;
         std::unordered_map<uint32_t, InputValue> local_inputs;
         std::unordered_map<uint32_t, InputValue> remote_inputs;
         std::unordered_map<uint32_t, uint64_t> local_hashes;
         std::unordered_map<uint32_t, uint64_t> remote_hashes;
         int mismatches = 0;
+
+        // Simulated network latency (PSR_NETPLAY_LATENCY_MS): incoming inputs
+        // only become usable this long after they arrive.
+        std::chrono::milliseconds latency{ 0 };
+        struct Pending {
+            std::chrono::steady_clock::time_point due;
+            uint32_t read;
+            InputValue value;
+        };
+        std::vector<Pending> pending;
+
+        // Pacing stats for netplay.log, per window of stats_interval reads.
+        FILE* log_file = nullptr;
+        std::chrono::steady_clock::time_point window_start = std::chrono::steady_clock::now();
+        double window_wait_ms = 0.0;
+        double window_max_wait_ms = 0.0;
     } session;
 
+    constexpr uint32_t stats_interval = 100;
+
+    // To stderr and netplay.log next to the exe, which is kept even when the
+    // game was started from a shortcut (so testers can send it in).
     void log(const std::string& message) {
         std::fprintf(stderr, "[netplay] %s\n", message.c_str());
         std::fflush(stderr);
+        if (session.log_file != nullptr) {
+            std::fprintf(session.log_file, "%s\n", message.c_str());
+            std::fflush(session.log_file);
+        }
     }
 
     void close_status();
@@ -202,14 +242,28 @@ namespace {
     // nothing happened. Shown on its own thread so the connection proceeds
     // meanwhile; close_status() dismisses it once the game is starting.
     constexpr const char* status_title = "Netplay - connecting";
+    std::atomic<bool> status_closed_by_game{ false };
 
+    // The status has a single Cancel button: dismissing it means the player
+    // gave up waiting, so quit instead of waiting on without a window.
     void show_status(const std::string& message) {
+        status_closed_by_game = false;
         std::thread([message] {
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, status_title, message.c_str(), nullptr);
+            const SDL_MessageBoxButtonData cancel{
+                SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel" };
+            const SDL_MessageBoxData box{ SDL_MESSAGEBOX_INFORMATION, nullptr, status_title,
+                                          message.c_str(), 1, &cancel, nullptr };
+            int pressed = 0;
+            SDL_ShowMessageBox(&box, &pressed);
+            if (!status_closed_by_game) {
+                log("cancelled while connecting");
+                std::_Exit(0);
+            }
         }).detach();
     }
 
     void close_status() {
+        status_closed_by_game = true;
 #ifdef _WIN32
         // The box may still be opening; give it a moment.
         for (int attempt = 0; attempt < 20; attempt++) {
@@ -269,7 +323,13 @@ namespace {
             if (header.type == MSG_INPUT && payload.size() == sizeof(InputMessage)) {
                 InputMessage m;
                 std::memcpy(&m, payload.data(), sizeof(m));
-                session.remote_inputs[m.read] = InputValue{ m.buttons, m.x, m.y };
+                const InputValue value{ m.buttons, m.x, m.y };
+                session.remote_latest = std::max(session.remote_latest, m.read);
+                if (session.latency.count() > 0) {
+                    session.pending.push_back({ std::chrono::steady_clock::now() + session.latency, m.read, value });
+                } else {
+                    session.remote_inputs[m.read] = value;
+                }
                 session.arrived.notify_all();
             } else if (header.type == MSG_HASH && payload.size() == sizeof(HashMessage)) {
                 HashMessage m;
@@ -312,7 +372,7 @@ namespace {
         log("hosting on port " + std::to_string(port) + ", waiting for the guest");
         show_status("Hosting on port " + std::to_string(port) +
                     ", waiting for the other player to join.\n\n"
-                    "The game starts as soon as they connect.");
+                    "The game starts as soon as they connect. Cancel stops hosting.");
         const socket_t client = ::accept(listener, nullptr, nullptr);
         close_socket(listener);
         if (client == INVALID_SOCKET) {
@@ -331,7 +391,7 @@ namespace {
         }
         log("joining " + address + ":" + port);
         show_status("Connecting to " + address + ":" + port +
-                    "...\n\nThe game starts as soon as the host is ready.");
+                    "...\n\nThe game starts as soon as the host is ready. Cancel stops trying.");
         // The host may still be starting up, so keep trying for a while.
         for (int attempt = 0; attempt < 60; attempt++) {
             for (addrinfo* a = found; a != nullptr; a = a->ai_next) {
@@ -351,12 +411,42 @@ namespace {
         fail("Couldn't connect to " + address + ":" + port + ". Is the host running, and is the port forwarded?");
     }
 
+    // Host side: measure the round trip and set the input delay both sides
+    // use, unless PSR_NETPLAY_DELAY fixed it.
+    void choose_delay() {
+        double best_rtt_ms = 1e9;
+        for (int i = 0; i < ping_count; i++) {
+            const uint32_t seq = static_cast<uint32_t>(i);
+            const auto sent = std::chrono::steady_clock::now();
+            Header header;
+            std::vector<uint8_t> payload;
+            if (!send_message(MSG_PING, &seq, sizeof(seq)) || !recv_message(header, payload) ||
+                header.type != MSG_PONG) {
+                fail("Lost the connection while measuring latency.");
+            }
+            std::this_thread::sleep_for(session.latency); // simulated guest-to-host trip
+            best_rtt_ms = std::min(best_rtt_ms, std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - sent).count());
+        }
+        if (session.fixed_delay == 0) {
+            const auto lead = static_cast<uint32_t>(std::ceil(best_rtt_ms / 2.0 / ms_per_read));
+            session.delay = std::min(max_delay, std::max(default_delay, lead + delay_margin));
+        } else {
+            session.delay = session.fixed_delay;
+        }
+        char line[160];
+        std::snprintf(line, sizeof(line), "round trip %.0f ms -> input delay %u reads%s",
+                      best_rtt_ms, session.delay, session.fixed_delay ? " (fixed by PSR_NETPLAY_DELAY)" : "");
+        log(line);
+        send_message(MSG_DELAY, &session.delay, sizeof(session.delay));
+    }
+
     void handshake(bool host) {
         Hello mine{};
         mine.magic = magic;
         mine.protocol = protocol_version;
         std::snprintf(mine.commit, sizeof(mine.commit), "%s", PSR_GIT_COMMIT);
-        mine.delay = session.delay;
+        mine.delay = session.fixed_delay;
         mine.carts = any_cart() ? 1 : 0;
         if (!send_message(MSG_HELLO, &mine, sizeof(mine))) {
             fail("Lost the connection during the handshake.");
@@ -384,12 +474,25 @@ namespace {
             if (!send_message(MSG_SAVE, save.data(), static_cast<uint32_t>(save.size()))) {
                 fail("Lost the connection while sending the Stadium save.");
             }
+            choose_delay();
         } else {
-            session.delay = theirs.delay; // the host's setting wins
             if (!recv_message(header, payload) || header.type != MSG_SAVE) {
                 fail("Didn't receive the host's Stadium save.");
             }
             use_session_save(payload);
+            // Answer the host's latency pings until it announces the delay.
+            while (true) {
+                if (!recv_message(header, payload)) {
+                    fail("Lost the connection during the handshake.");
+                }
+                if (header.type == MSG_PING) {
+                    std::this_thread::sleep_for(session.latency); // simulated host-to-guest trip
+                    send_message(MSG_PONG, payload.data(), static_cast<uint32_t>(payload.size()));
+                } else if (header.type == MSG_DELAY && payload.size() == sizeof(uint32_t)) {
+                    std::memcpy(&session.delay, payload.data(), sizeof(uint32_t));
+                    break;
+                }
+            }
         }
     }
 }
@@ -410,8 +513,14 @@ void start() {
         fail("PSR_NETPLAY must be host:<port> or join:<address>:<port>.");
     }
     if (const char* delay = std::getenv("PSR_NETPLAY_DELAY"); delay != nullptr && delay[0] != '\0') {
-        session.delay = static_cast<uint32_t>(std::atoi(delay));
+        session.fixed_delay = static_cast<uint32_t>(std::atoi(delay));
     }
+    if (const char* latency = std::getenv("PSR_NETPLAY_LATENCY_MS"); latency != nullptr && latency[0] != '\0') {
+        session.latency = std::chrono::milliseconds(std::atoi(latency));
+    }
+    session.log_file = std::fopen((std::filesystem::current_path() / "netplay.log").string().c_str(), "w");
+    log(std::string("build ") + PSR_GIT_COMMIT + ", " + spec +
+        (session.latency.count() > 0 ? ", simulated latency " + std::to_string(session.latency.count()) + " ms" : ""));
 
     // Both machines must read the same game clock.
 #ifdef _WIN32
@@ -454,6 +563,25 @@ bool get_input(int controller, LocalInputFn local, uint16_t* buttons, float* x, 
     if (controller == 0 && read % hash_interval == 0) {
         hash_state(read);
     }
+    if (controller == 0 && read > 0 && read % stats_interval == 0) {
+        const auto now = std::chrono::steady_clock::now();
+        const double seconds = std::chrono::duration<double>(now - session.window_start).count();
+        uint32_t remote_latest;
+        {
+            std::scoped_lock lock(session.mutex);
+            remote_latest = session.remote_latest;
+        }
+        char line[240];
+        std::snprintf(line, sizeof(line),
+                      "read %u: %.1f reads/s, waited %.0f ms total (max %.0f ms) in the last %u reads; "
+                      "other side has sent up to read %u",
+                      read, stats_interval / seconds, session.window_wait_ms, session.window_max_wait_ms,
+                      stats_interval, remote_latest);
+        log(line);
+        session.window_start = now;
+        session.window_wait_ms = 0.0;
+        session.window_max_wait_ms = 0.0;
+    }
 
     InputValue value;
     if (controller == session.local_port) {
@@ -470,10 +598,40 @@ bool get_input(int controller, LocalInputFn local, uint16_t* buttons, float* x, 
             session.local_inputs.erase(it);
         }
     } else if (read >= session.delay) {
+        const auto wait_start = std::chrono::steady_clock::now();
         std::unique_lock lock(session.mutex);
-        session.arrived.wait(lock, [&] {
-            return session.remote_inputs.count(read) != 0 || !session.connected;
-        });
+        while (session.remote_inputs.count(read) == 0 && session.connected) {
+            // Release simulated-latency inputs whose time has come.
+            auto next_due = std::chrono::steady_clock::time_point::max();
+            const auto now = std::chrono::steady_clock::now();
+            for (auto p = session.pending.begin(); p != session.pending.end();) {
+                if (p->due <= now) {
+                    session.remote_inputs[p->read] = p->value;
+                    p = session.pending.erase(p);
+                } else {
+                    next_due = std::min(next_due, p->due);
+                    ++p;
+                }
+            }
+            if (session.remote_inputs.count(read) != 0) {
+                break;
+            }
+            // Wake at least once a second so a stall gets reported.
+            const auto wake = std::min(next_due, now + std::chrono::seconds(1));
+            session.arrived.wait_until(lock, wake);
+            const double stalled_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - wait_start).count();
+            if (stalled_s >= 2.0 && std::fmod(stalled_s, 5.0) < 1.0) {
+                char line[160];
+                std::snprintf(line, sizeof(line),
+                              "still waiting for the other player's read %u of port %d (%.0f s); %zu delayed inputs pending",
+                              read, controller + 1, stalled_s, session.pending.size());
+                log(line);
+            }
+        }
+        const double waited_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - wait_start).count();
+        session.window_wait_ms += waited_ms;
+        session.window_max_wait_ms = std::max(session.window_max_wait_ms, waited_ms);
         const auto it = session.remote_inputs.find(read);
         if (it == session.remote_inputs.end()) {
             lock.unlock();

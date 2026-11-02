@@ -6,13 +6,15 @@
 #   ... replay     # two instances (a, b) replay that input side by side
 #                  # (-DumpAt <poll> also writes each one's RDRAM at that poll)
 #   ... compare    # first poll where the runs' state hashes differ
-#   ... netplay    # a hosts and b joins over localhost (b plays on keyboard)
+#   ... netplay    # a hosts and b joins over localhost (b plays on keyboard);
+#                  # -LatencyMs <n> delays each side's incoming input like a real network
 #
 # Each instance runs from its own folder under third_party\work\np\ (config,
 # Stadium save and logs live next to the exe), all starting from the same
 # Stadium save snapshot, with the Transfer Pak off and the launcher skipped.
 param([Parameter(Mandatory)][ValidateSet('setup', 'record', 'replay', 'compare', 'netplay')][string]$Step,
-      [int]$DumpAt = -1)
+      [int]$DumpAt = -1,
+      [int]$LatencyMs = 0)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -94,8 +96,9 @@ switch ($Step) {
         (Get-Content $bConfig) -replace '^p1_device=.*', 'p1_device=1' | Set-Content $bConfig -Encoding ascii
         # The host records both players' lockstep input, so a session can be
         # replayed offline (e.g. to reproduce a crash on another build).
-        $a = Start-Instance 'a' 4382 @{ PSR_NETPLAY = 'host:7311'; PSR_INPUT_RECORD = (Join-Path $np 'a\netplay-input.bin') }
-        $b = Start-Instance 'b' 4383 @{ PSR_NETPLAY = 'join:127.0.0.1:7311' }
+        $a = Start-Instance 'a' 4382 @{ PSR_NETPLAY = 'host:7311'; PSR_INPUT_RECORD = (Join-Path $np 'a\netplay-input.bin');
+                                         PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
+        $b = Start-Instance 'b' 4383 @{ PSR_NETPLAY = 'join:127.0.0.1:7311'; PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
         Write-Host "host a (pid $($a.Id)), guest b (pid $($b.Id))"
     }
     'compare' {
