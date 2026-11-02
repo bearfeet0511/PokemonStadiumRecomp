@@ -512,6 +512,42 @@ namespace {
 }
 
 namespace {
+    std::string trim(const std::string& s) {
+        const size_t start = s.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) {
+            return "";
+        }
+        return s.substr(start, s.find_last_not_of(" \t\r\n") - start + 1);
+    }
+
+    bool all_digits(const std::string& s) {
+        return !s.empty() && s.find_first_not_of("0123456789") == std::string::npos;
+    }
+
+    // What people paste into the address box: "203.0.113.5", "host.example",
+    // "203.0.113.5:7311", "[2001:db8::1]:7311" or a bare IPv6 address. A port
+    // written with the address wins over the port box.
+    void split_address(std::string& address, std::string& port) {
+        address = trim(address);
+        if (!address.empty() && address.front() == '[') {
+            const size_t close = address.find(']');
+            if (close != std::string::npos) {
+                const std::string rest = address.substr(close + 1);
+                if (rest.size() > 1 && rest[0] == ':' && all_digits(rest.substr(1))) {
+                    port = rest.substr(1);
+                }
+                address = address.substr(1, close - 1);
+            }
+            return;
+        }
+        const size_t colon = address.find(':');
+        if (colon != std::string::npos && address.find(':', colon + 1) == std::string::npos &&
+            all_digits(address.substr(colon + 1))) {
+            port = address.substr(colon + 1);
+            address = address.substr(0, colon);
+        }
+    }
+
     // The launcher's ONLINE PLAY card, saved in launcher.cfg as
     // netplay=off|host|join, netplay_address, netplay_port. Returns the same
     // spec format as PSR_NETPLAY, or "" when online play is off.
@@ -523,19 +559,17 @@ namespace {
             if (line.empty() || line[0] == '#' || eq == std::string::npos) {
                 continue;
             }
-            const std::string key = line.substr(0, eq);
-            std::string value = line.substr(eq + 1);
-            while (!value.empty() && (value.back() == '\r' || value.back() == ' ')) {
-                value.pop_back();
-            }
+            const std::string key = trim(line.substr(0, eq));
+            const std::string value = trim(line.substr(eq + 1));
             if (key == "netplay") mode = value;
             else if (key == "netplay_address") address = value;
-            else if (key == "netplay_port" && !value.empty()) port = value;
+            else if (key == "netplay_port" && all_digits(value)) port = value;
         }
         if (mode == "host") {
             return "host:" + port;
         }
         if (mode == "join") {
+            split_address(address, port);
             if (address.empty()) {
                 fail("Online play is set to Join, but no host address was entered. "
                      "Type the host's address in the launcher's ONLINE PLAY card.");

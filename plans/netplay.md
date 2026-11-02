@@ -88,5 +88,11 @@ same inputs; only audio, profiler and OS memory differ.
    32 KB saves only and compare GB ROM hashes; never send ROMs. Each side
    writes back only its own cart (the Gen1Recomp bridge already merges per
    port); the other cart is a session copy.
-3. Launcher UI: Host / Join, address, port, delay, status.
+3. Launcher UI: Host / Join, address, port, delay, status. (Done: ONLINE PLAY card.)
 4. Disconnect handling and a clear "desynced" screen.
+5. Up to 4 players (user request, 2026-11-01): Stadium supports 4
+   controllers (Kids Club mini-games use all four; in battles players 3-4
+   watch and can swap in). Star topology: the host relays each guest's
+   input to every other peer; each player drives their own port and brings
+   their own cart, written back only on their own machine. Builds on cart
+   exchange. No spectator mode needed: the group streams over Discord.
