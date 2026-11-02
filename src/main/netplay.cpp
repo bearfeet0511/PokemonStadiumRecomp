@@ -43,7 +43,8 @@ extern "C" uint8_t* recomp_runtime_get_rdram(void);
 namespace pkmnstadium::netplay {
 namespace {
     constexpr uint32_t magic = 0x4E525350; // "PSRN"
-    constexpr uint32_t protocol_version = 1;
+    constexpr uint32_t protocol_version = 2;
+    constexpr const char* stadium_save_name = "pokestadium.us.1.0.bin";
     constexpr uint32_t default_delay = 2;
     constexpr uint32_t hash_interval = 120;
     constexpr int mismatches_to_stop = 3;
@@ -52,7 +53,7 @@ namespace {
     constexpr uint32_t heap_start = 0x00100000;
     constexpr uint32_t heap_end = 0x00800000;
 
-    enum MessageType : uint8_t { MSG_HELLO = 1, MSG_INPUT = 2, MSG_HASH = 3 };
+    enum MessageType : uint8_t { MSG_HELLO = 1, MSG_INPUT = 2, MSG_HASH = 3, MSG_SAVE = 4, MSG_BYE = 5 };
 
 #pragma pack(push, 1)
     struct Header {
@@ -65,7 +66,6 @@ namespace {
         uint32_t protocol;
         char commit[41];
         uint32_t delay;
-        uint64_t save_hash;
         uint8_t carts;
     };
     struct InputMessage {
@@ -97,6 +97,7 @@ namespace {
         std::mutex send_mutex;
         std::condition_variable arrived;
         bool connected = false;
+        bool other_left = false;
         uint32_t reads[2] = {};
         std::unordered_map<uint32_t, InputValue> local_inputs;
         std::unordered_map<uint32_t, InputValue> remote_inputs;
@@ -167,12 +168,40 @@ namespace {
         return h;
     }
 
-    uint64_t stadium_save_hash() {
-        std::ifstream file(std::filesystem::current_path() / "saves" / "pokestadium.us.1.0.bin",
-                           std::ios::binary);
-        const std::vector<char> bytes((std::istreambuf_iterator<char>(file)),
-                                      std::istreambuf_iterator<char>());
-        return bytes.empty() ? 0 : fnv_words(reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    std::vector<char> read_stadium_save() {
+        std::ifstream file(std::filesystem::current_path() / "saves" / stadium_save_name, std::ios::binary);
+        return std::vector<char>((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    }
+
+    // The guest plays the session on a copy of the host's Stadium save (as the
+    // 3DS port does), in its own folder so the guest's save is never touched.
+    void use_session_save(const std::vector<uint8_t>& bytes) {
+        const std::filesystem::path dir = std::filesystem::current_path() / "saves" / "netplay-session";
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir, ec);
+        if (!bytes.empty()) {
+            std::ofstream file(dir / stadium_save_name, std::ios::binary | std::ios::trunc);
+            file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+            if (!file) {
+                fail("Couldn't write the session save to " + dir.string() + ".");
+            }
+        }
+#ifdef _WIN32
+        _putenv_s("RECOMP_SAVE_DIR", dir.string().c_str());
+#else
+        setenv("RECOMP_SAVE_DIR", dir.string().c_str(), 1);
+#endif
+        log("playing on the host's Stadium save (" + std::to_string(bytes.size()) + " bytes)");
+    }
+
+    [[noreturn]] void connection_lost() {
+        bool left;
+        {
+            std::scoped_lock lock(session.mutex);
+            left = session.other_left;
+        }
+        fail(left ? "The other player left the game." : "Lost the connection to the other player.");
     }
 
     bool any_cart() {
@@ -220,6 +249,8 @@ namespace {
                 std::memcpy(&m, payload.data(), sizeof(m));
                 session.remote_hashes[m.read] = m.hash;
                 compare_hashes(m.read);
+            } else if (header.type == MSG_BYE) {
+                session.other_left = true;
             }
         }
         std::scoped_lock lock(session.mutex);
@@ -252,6 +283,12 @@ namespace {
             fail("Couldn't listen on port " + std::to_string(port) + ". Is it already in use?");
         }
         log("hosting on port " + std::to_string(port) + ", waiting for the guest");
+        // Listening already, so a guest that connects while this is open is
+        // picked up as soon as it's dismissed.
+        const std::string waiting = "Hosting on port " + std::to_string(port) +
+            ".\n\nPress OK, then have the other player join using your address. "
+            "The game starts when they connect.";
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Netplay", waiting.c_str(), nullptr);
         const socket_t client = ::accept(listener, nullptr, nullptr);
         close_socket(listener);
         if (client == INVALID_SOCKET) {
@@ -294,7 +331,6 @@ namespace {
         mine.protocol = protocol_version;
         std::snprintf(mine.commit, sizeof(mine.commit), "%s", PSR_GIT_COMMIT);
         mine.delay = session.delay;
-        mine.save_hash = stadium_save_hash();
         mine.carts = any_cart() ? 1 : 0;
         if (!send_message(MSG_HELLO, &mine, sizeof(mine))) {
             fail("Lost the connection during the handshake.");
@@ -317,12 +353,17 @@ namespace {
         if (mine.carts || theirs.carts) {
             fail("Transfer Pak carts aren't supported in netplay yet. Both players need to remove their carts.");
         }
-        if (theirs.save_hash != mine.save_hash) {
-            fail("The two Stadium saves differ, and syncing them isn't supported yet. "
-                 "Both players need identical saves/pokestadium.us.1.0.bin files.");
-        }
-        if (!host) {
+        if (host) {
+            const std::vector<char> save = read_stadium_save();
+            if (!send_message(MSG_SAVE, save.data(), static_cast<uint32_t>(save.size()))) {
+                fail("Lost the connection while sending the Stadium save.");
+            }
+        } else {
             session.delay = theirs.delay; // the host's setting wins
+            if (!recv_message(header, payload) || header.type != MSG_SAVE) {
+                fail("Didn't receive the host's Stadium save.");
+            }
+            use_session_save(payload);
         }
     }
 }
@@ -393,7 +434,7 @@ bool get_input(int controller, LocalInputFn local, uint16_t* buttons, float* x, 
         local(&live.buttons, &live.x, &live.y);
         const InputMessage m{ read + session.delay, live.buttons, live.x, live.y };
         if (!send_message(MSG_INPUT, &m, sizeof(m))) {
-            fail("The connection to the other player was lost.");
+            connection_lost();
         }
         std::scoped_lock lock(session.mutex);
         session.local_inputs[read + session.delay] = live;
@@ -409,7 +450,7 @@ bool get_input(int controller, LocalInputFn local, uint16_t* buttons, float* x, 
         const auto it = session.remote_inputs.find(read);
         if (it == session.remote_inputs.end()) {
             lock.unlock();
-            fail("The connection to the other player was lost.");
+            connection_lost();
         }
         value = it->second;
         session.remote_inputs.erase(it);
@@ -429,6 +470,8 @@ void shutdown() {
         return;
     }
     session.active = false;
+    // Lets the other side say "the other player left" rather than "lost the connection".
+    send_message(MSG_BYE, nullptr, 0);
     close_socket(session.sock);
     if (session.receiver.joinable()) {
         session.receiver.detach();

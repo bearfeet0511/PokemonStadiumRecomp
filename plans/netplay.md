@@ -42,8 +42,14 @@ same inputs; only audio, profiler and OS memory differ.
   stayed in sync; the desync check never fired. Test with
   `tools\netplay_probe.ps1 netplay` (host on gamepad, guest on keyboard; the
   host records both players' input to `a\netplay-input.bin`).
-- Closing one side shows "connection lost" on the other: it should say the
-  other player left.
+- Slice 2a (protocol 2): the host sends its Stadium save after the
+  handshake, and the guest plays on it from `saves\netplay-session\` via the
+  runtime's `RECOMP_SAVE_DIR` override (runtime patch 0004), never touching
+  its own save. Saves no longer have to match. A goodbye message lets the
+  other side say "the other player left". The host shows a "Hosting on port"
+  message while it waits.
+- Release zip (`_package_release.ps1`) includes `Netplay - Host.bat`,
+  `Netplay - Join.bat` and `NETPLAY.txt` from `tools\release\`.
 
 ## Later slices
 1. Stadium save transfer (host → guest session copy).

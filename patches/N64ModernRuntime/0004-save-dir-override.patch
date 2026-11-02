@@ -1,0 +1,24 @@
+diff --git a/librecomp/src/pi.cpp b/librecomp/src/pi.cpp
+index 16c3214..7e595ce 100644
+--- a/librecomp/src/pi.cpp
++++ b/librecomp/src/pi.cpp
+@@ -22,6 +22,7 @@
+ #include <atomic>
+ #include <chrono>
+ #include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <string>
+ #include <mutex>
+@@ -374,6 +375,11 @@ std::filesystem::path ultramodern::get_save_file_path() {
+ 
+ void set_save_file_path(const std::u8string& subfolder, const std::u8string& name) {
+     std::filesystem::path dir = config_path / save_folder;
++    // A session can redirect saves, e.g. a netplay guest playing on a copy of
++    // the host's save that must never overwrite its own.
++    if (const char* override_dir = std::getenv("RECOMP_SAVE_DIR"); override_dir != nullptr && override_dir[0] != '\0') {
++        dir = std::filesystem::path(override_dir);
++    }
+     if (!subfolder.empty()) {
+         dir /= subfolder;
+     }

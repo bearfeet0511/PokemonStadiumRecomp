@@ -1,0 +1,36 @@
+Pokemon Stadium Recomp - netplay (test build)
+=============================================
+
+Two players, each on their own PC, over the internet.
+
+Before you start (both players)
+- Everyone needs their own Pokemon Stadium (USA) v1.0 ROM. No ROMs are
+  included. Later revisions ("Rev 1", "Rev 2") don't work.
+- Run PokemonStadiumRecomp.exe once and choose your ROM in the launcher.
+- Both players must use this exact same download. A different build is
+  refused.
+- No Transfer Pak carts yet: leave the Transfer Pak settings empty. Use
+  rental Pokemon for now.
+
+Host (player 1)
+1. Forward TCP port 7311 on your router to this PC. If Windows Firewall
+   asks, allow it on Private networks.
+2. Find your public IP address (search "what is my IP") and send it to
+   the other player.
+3. Double-click "Netplay - Host.bat", press Play in the launcher, then OK
+   on the "Hosting" message. The game starts when the other player joins.
+
+Guest (player 2)
+1. Double-click "Netplay - Join.bat" and type the host's address.
+2. Press Play in the launcher. It keeps trying for a minute while the host
+   gets ready.
+
+During the game
+- Each player uses their own controller (whatever the launcher sets as
+  player 1 on their PC).
+- The guest plays on a copy of the host's Stadium save; the guest's own
+  save isn't changed.
+- If one game is slow, both wait for it. That's normal.
+- "The two games went out of sync" means a desync bug. Please report what
+  you were doing.
+- Closing either window ends the session for both.

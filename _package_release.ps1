@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "v0.4.6-beta",
+    [string]$Version = "fork-netplay-test1",
     [string]$BuildDir = "build",
     [string]$DistDir = "dist"
 )
@@ -46,6 +46,18 @@ foreach ($dll in @("SDL2.dll", "dxcompiler.dll", "dxil.dll")) {
 }
 Copy-Item -LiteralPath $assets -Destination $stage -Recurse
 
+# Gen1Recomp save support (LuaJIT + pinned converter + its license), bundled
+# into build\gen1recomp by CMake when tools\setup_libs.ps1 has provisioned it.
+$gen1recomp = Join-Path $build "gen1recomp"
+if (Test-Path -LiteralPath (Join-Path $gen1recomp "luajit.exe")) {
+    Copy-Item -LiteralPath $gen1recomp -Destination $stage -Recurse
+} else {
+    Write-Warning "Gen1Recomp support missing from $gen1recomp; .lua slots won't work in this package"
+}
+
+# Netplay shortcuts and instructions.
+Copy-Item -Path (Join-Path $root "tools\release\*") -Destination $stage
+
 foreach ($doc in @("README.md", "ISSUES.md", "COPYING")) {
     $source = Join-Path $root $doc
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $stage }
@@ -66,6 +78,7 @@ $licenseMap = @{
     "GamepadMotionHelpers-LICENSE.txt" = (Join-Path $root "lib\GamepadMotionHelpers\LICENSE")
     "SlotMap-LICENSE.txt" = (Join-Path $root "lib\SlotMap\README.md")
     "fonts-OFL-1.1.txt" = (Join-Path $root "licenses\OFL-1.1.txt")
+    "LuaJIT-MIT-COPYRIGHT.txt" = (Join-Path $root "third_party\luajit\COPYRIGHT")
 }
 foreach ($entry in $licenseMap.GetEnumerator()) {
     if (Test-Path -LiteralPath $entry.Value) {
