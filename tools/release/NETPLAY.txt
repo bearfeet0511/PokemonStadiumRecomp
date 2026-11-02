@@ -17,13 +17,14 @@ Host (player 1)
    asks, allow it on Private networks.
 2. Find your public IP address (search "what is my IP") and send it to
    the other player.
-3. Double-click "Netplay - Host.bat", press Play in the launcher, then OK
-   on the "Hosting" message. The game starts when the other player joins.
+3. Double-click "Netplay - Host.bat" and press Play in the launcher. A
+   "Hosting" message shows while you wait; the game starts when the other
+   player joins.
 
 Guest (player 2)
 1. Double-click "Netplay - Join.bat" and type the host's address.
-2. Press Play in the launcher. It keeps trying for a minute while the host
-   gets ready.
+2. Press Play in the launcher. A "Connecting" message shows; it keeps
+   trying for a minute while the host gets ready.
 
 During the game
 - Each player uses their own controller (whatever the launcher sets as

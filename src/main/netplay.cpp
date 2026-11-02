@@ -111,9 +111,12 @@ namespace {
         std::fflush(stderr);
     }
 
+    void close_status();
+
     // Playing on after a failure would silently desync, so stop the game.
     [[noreturn]] void fail(const std::string& message) {
         log(message);
+        close_status();
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Netplay", message.c_str(), nullptr);
         std::_Exit(1);
     }
@@ -193,6 +196,30 @@ namespace {
         setenv("RECOMP_SAVE_DIR", dir.string().c_str(), 1);
 #endif
         log("playing on the host's Stadium save (" + std::to_string(bytes.size()) + " bytes)");
+    }
+
+    // Status shown while connecting, so the window-less wait doesn't look like
+    // nothing happened. Shown on its own thread so the connection proceeds
+    // meanwhile; close_status() dismisses it once the game is starting.
+    constexpr const char* status_title = "Netplay - connecting";
+
+    void show_status(const std::string& message) {
+        std::thread([message] {
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, status_title, message.c_str(), nullptr);
+        }).detach();
+    }
+
+    void close_status() {
+#ifdef _WIN32
+        // The box may still be opening; give it a moment.
+        for (int attempt = 0; attempt < 20; attempt++) {
+            if (HWND box = FindWindowA(nullptr, status_title)) {
+                PostMessageA(box, WM_CLOSE, 0, 0);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+#endif
     }
 
     [[noreturn]] void connection_lost() {
@@ -283,12 +310,9 @@ namespace {
             fail("Couldn't listen on port " + std::to_string(port) + ". Is it already in use?");
         }
         log("hosting on port " + std::to_string(port) + ", waiting for the guest");
-        // Listening already, so a guest that connects while this is open is
-        // picked up as soon as it's dismissed.
-        const std::string waiting = "Hosting on port " + std::to_string(port) +
-            ".\n\nPress OK, then have the other player join using your address. "
-            "The game starts when they connect.";
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Netplay", waiting.c_str(), nullptr);
+        show_status("Hosting on port " + std::to_string(port) +
+                    ", waiting for the other player to join.\n\n"
+                    "The game starts as soon as they connect.");
         const socket_t client = ::accept(listener, nullptr, nullptr);
         close_socket(listener);
         if (client == INVALID_SOCKET) {
@@ -306,6 +330,8 @@ namespace {
             fail("Couldn't resolve the host address " + address + ".");
         }
         log("joining " + address + ":" + port);
+        show_status("Connecting to " + address + ":" + port +
+                    "...\n\nThe game starts as soon as the host is ready.");
         // The host may still be starting up, so keep trying for a while.
         for (int attempt = 0; attempt < 60; attempt++) {
             for (addrinfo* a = found; a != nullptr; a = a->ai_next) {
@@ -410,6 +436,7 @@ void start() {
     setsockopt(session.sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&no_delay), sizeof(no_delay));
 
     handshake(host);
+    close_status();
     session.local_port = host ? 0 : 1;
     session.remote_port = host ? 1 : 0;
     session.connected = true;
