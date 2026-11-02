@@ -1,8 +1,8 @@
 diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
-index b3d619d..92109e0 100644
+index b3d619d..85d8d7e 100644
 --- a/src/common/backends/imgui/launcher_imgui.cpp
 +++ b/src/common/backends/imgui/launcher_imgui.cpp
-@@ -1271,6 +1271,68 @@ void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
+@@ -1271,6 +1271,89 @@ void panel_tpak_draw(LauncherModel* m, const LauncherTheme* th) {
      }
  }
  
@@ -49,18 +49,39 @@ index b3d619d..92109e0 100644
 +            if (m->s.netplay_port > 65535) m->s.netplay_port = 65535;
 +        }
 +    }
++    if (m->s.netplay_mode == 1) {
++        // The host picks how many players the session waits for.
++        if (m->s.netplay_players < 2 || m->s.netplay_players > 4) m->s.netplay_players = 2;
++        ImGui::SameLine(0, px(th.spacing_md));
++        ImGui::AlignTextToFramePadding();
++        ImGui::TextColored(col(th.text_muted), "Players");
++        for (int n = 2; n <= 4; ++n) {
++            ImGui::SameLine(0, n == 2 ? px(th.spacing_sm) : gap);
++            const bool sel = m->s.netplay_players == n;
++            char label[8];
++            snprintf(label, sizeof(label), "%d##np_pl", n);
++            ImGui::PushStyleColor(ImGuiCol_Button, sel ? col(th.accent) : col(th.control));
++            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, sel ? col(th.accent) : col(th.control_hovered));
++            ImGui::PushStyleColor(ImGuiCol_ButtonActive, col(th.accent));
++            ImGui::PushStyleColor(ImGuiCol_Text, sel ? col(th.accent_text) : col(th.text));
++            if (ImGui::Button(label, ImVec2(px(36), px(28))))
++                m->s.netplay_players = n;
++            ImGui::PopStyleColor(4);
++        }
++    }
 +
 +    ImGui::Dummy(ImVec2(0, px(4)));
 +    if (m->s.netplay_mode == 1) {
 +        ImGui::TextWrapped("You're player 1. Forward TCP port %d on your router to this PC, then give "
-+                           "the other player your public IP address. Press Play to wait for them.",
-+                           m->s.netplay_port);
++                           "the others your public IP address. Press Play to wait for them; the game "
++                           "starts when %d players are in.",
++                           m->s.netplay_port, m->s.netplay_players);
 +    } else if (m->s.netplay_mode == 2) {
-+        ImGui::TextWrapped("You're player 2. Enter the host's public IP address and press Play. "
-+                           "Both players need the same version.");
++        ImGui::TextWrapped("Enter the host's public IP address and press Play. Players get numbers "
++                           "2-4 in the order they join. Everyone needs the same version.");
 +    } else {
 +        ImGui::TextColored(col(th.text_muted),
-+                           "Play a friend over the internet: one player hosts, the other joins.");
++                           "Play friends over the internet: one player hosts, up to three join.");
 +    }
 +    if (m->s.netplay_mode != 0)
 +        ImGui::TextColored(col(th.text_muted),
@@ -71,7 +92,7 @@ index b3d619d..92109e0 100644
  // PSX-style 3-way pad-mode selector: Hybrid / Analog / D-Pad segmented row.
  // Caller only draws this when pad_mode_supported && pad_mode_selectable (a
  // locked mode draws nothing — there's nothing to pick). The Hybrid segment is
-@@ -1527,6 +1589,10 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
+@@ -1527,6 +1610,10 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
              ImGui::Dummy(ImVec2(0, gap));
              tpak_p->draw(m, &th);
          }
@@ -82,7 +103,7 @@ index b3d619d..92109e0 100644
      } else {
          if (game_p) { g_game_fill_h = false; game_p->draw(m, &th); }
          if (game_p && ctrl_p) ImGui::Spacing();
-@@ -1534,6 +1600,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
+@@ -1534,6 +1621,7 @@ void draw_dashboard(LauncherModel* m, const LauncherTheme& th, int logical_w) {
          // Narrow single-column layout: memcards stack under the controller.
          if (save_p) { ImGui::Spacing(); save_p->draw(m, &th); }
          if (tpak_p) { ImGui::Spacing(); tpak_p->draw(m, &th); }
@@ -117,10 +138,10 @@ index 1b09044..d972b26 100644
      // the aspect cycle walks these 0..num_aspect_labels-1 instead of the
      // built-in 4:3/16:9/21:9 mask set; aspect_experimental tags the row.
 diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
-index a0bc3a2..7c84c30 100644
+index a0bc3a2..cb6349d 100644
 --- a/src/recomp_launcher.h
 +++ b/src/recomp_launcher.h
-@@ -126,6 +126,13 @@ typedef struct RecompLauncherCSettings {
+@@ -126,6 +126,14 @@ typedef struct RecompLauncherCSettings {
      // In a window, the fixed aspect selects the initial size before live
      // resizing takes over. Adaptive + fullscreen ignores the fixed aspect.
      int  adaptive_view;       // bool: logical width follows host drawable aspect
@@ -131,10 +152,11 @@ index a0bc3a2..7c84c30 100644
 +    int  netplay_mode;          // 0 = off, 1 = host, 2 = join
 +    char netplay_address[256];  // join: the host's address (IP or name)
 +    int  netplay_port;          // TCP port; the host seeds its default
++    int  netplay_players;       // host: how many players (2..4); 0 = unset -> 2
  } RecompLauncherCSettings;
  
  // ---- host verification/inspection results (filled by the callbacks below) ----
-@@ -333,6 +340,10 @@ typedef struct RecompLauncherCGameInfo {
+@@ -333,6 +341,10 @@ typedef struct RecompLauncherCGameInfo {
      // an Adaptive view toggle. Adaptive + fullscreen leaves the fixed aspect
      // control visible but disabled because the display chooses the live width.
      int  adaptive_view_supported;

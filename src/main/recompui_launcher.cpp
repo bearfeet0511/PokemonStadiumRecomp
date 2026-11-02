@@ -254,6 +254,10 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
     if (s.netplay_port < 1 || s.netplay_port > 65535) {
         s.netplay_port = 7311;
     }
+    s.netplay_players = cfg.count("netplay_players") ? std::atoi(cfg["netplay_players"].c_str()) : 2;
+    if (s.netplay_players < 2 || s.netplay_players > 4) {
+        s.netplay_players = 2;
+    }
 }
 
 // Persist a committed RecompLauncherCSettings back to launcher.cfg, using the
@@ -313,6 +317,8 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "netplay=" << (s.netplay_mode == 1 ? "host" : s.netplay_mode == 2 ? "join" : "off") << "\n";
     f << "netplay_address=" << s.netplay_address << "\n";
     f << "netplay_port=" << s.netplay_port << "\n";
+    f << "# netplay_players=2..4 : how many players a hosted session waits for.\n";
+    f << "netplay_players=" << s.netplay_players << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------

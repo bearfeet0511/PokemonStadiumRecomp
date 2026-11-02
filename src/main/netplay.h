@@ -2,13 +2,14 @@
 
 #include <cstdint>
 
-// Online play by input lockstep: host = player 1, guest = player 2, over one
-// TCP connection the host makes reachable by forwarding a port. Design and
-// slice plan: plans/netplay.md.
+// Online play by input lockstep for 2-4 players: host = player 1, guests =
+// players 2-4 in join order. Each guest has one TCP connection to the host
+// (the only one who forwards a port), and the host relays every player's
+// input to everyone. Design and slice plan: plans/netplay.md.
 //
 // Configured in the launcher's ONLINE PLAY card (launcher.cfg netplay=,
-// netplay_address=, netplay_port=). PSR_NETPLAY=host:<port> or
-// join:<address>:<port> overrides it; PSR_NETPLAY_DELAY=<reads> fixes the
+// netplay_address=, netplay_port=, netplay_players=).
+// PSR_NETPLAY=host:<port>[:<players>] or join:<address>:<port> overrides it; PSR_NETPLAY_DELAY=<reads> fixes the
 // input delay (otherwise measured at connect); PSR_NETPLAY_LATENCY_MS
 // simulates network latency for local testing.
 namespace pkmnstadium::netplay {
@@ -31,7 +32,7 @@ namespace pkmnstadium::netplay {
                    uint16_t* buttons, float* x, float* y);
 
     // Whether N64 port `controller` has a controller plugged in during the
-    // session (ports 1-2 yes, 3-4 no), identical on both machines.
+    // session (one per player, the rest empty), identical on every machine.
     bool controller_present(int controller);
 
     // Closes the connection. Call once on quit.

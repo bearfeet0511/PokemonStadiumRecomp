@@ -90,7 +90,10 @@ same inputs; only audio, profiler and OS memory differ.
    port); the other cart is a session copy.
 3. Launcher UI: Host / Join, address, port, delay, status. (Done: ONLINE PLAY card.)
 4. Disconnect handling and a clear "desynced" screen.
-5. Up to 4 players (user request, 2026-11-01): Stadium supports 4
+5. (Done, rentals only: protocol 4.) Verified with 3 local instances at 60 ms
+   per hop: guests pinged ~121 ms, delay 6, ~3,000 reads at 30 reads/s in
+   sync, and "The host ended the session" on both guests when the host quit.
+   Up to 4 players (user request, 2026-11-01): Stadium supports 4
    controllers (Kids Club mini-games use all four; in battles players 3-4
    watch and can swap in). Star topology: the host relays each guest's
    input to every other peer; each player drives their own port and brings

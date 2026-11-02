@@ -1,7 +1,8 @@
 Pokemon Stadium Recomp - online play (test build)
 =================================================
 
-Two players, each on their own PC, over the internet.
+2 to 4 players, each on their own PC, over the internet. One player hosts;
+everyone else joins the host (only the host forwards a port).
 
 Before you start (both players)
 - Everyone needs their own Pokemon Stadium (USA) v1.0 ROM. No ROMs are
@@ -16,12 +17,12 @@ Host (player 1)
 1. Forward TCP port 7311 on your router to this PC. If Windows Firewall
    asks, allow it on Private networks.
 2. Find your public IP address (search "what is my IP") and send it to
-   the other player.
-3. In the launcher's ONLINE PLAY card, choose Host and press Play. A
-   "Hosting" message shows while you wait; the game starts when the other
-   player joins.
+   the others.
+3. In the launcher's ONLINE PLAY card, choose Host, pick how many Players
+   (2-4), and press Play. A "Hosting" message shows while you wait; the
+   game starts when everyone has joined.
 
-Guest (player 2)
+Guests (players 2-4, numbered in the order they join)
 1. In the launcher's ONLINE PLAY card, choose Join and type the host's
    address.
 2. Press Play. A "Connecting" message shows; it keeps trying for a minute
@@ -32,16 +33,18 @@ The launcher remembers these settings. Choose Off to play on your own again.
 During the game
 - Each player uses their own controller (whatever the launcher sets as
   player 1 on their PC).
-- The guest plays on a copy of the host's Stadium save; the guest's own
-  save isn't changed.
+- Guests play on a copy of the host's Stadium save; their own saves
+  aren't changed.
+- In battles two players fight; players 3-4 can swap in for the next
+  match. Kids Club mini-games use all four.
 - The input delay is set automatically from the connection, so on a slow
   or jittery connection your presses take effect a few frames later. If
-  one game is slow, both wait for it. That's normal.
-- "The two games went out of sync" means a desync bug. Please report what
+  one game is slow, everyone waits for it. That's normal.
+- "The games went out of sync" means a desync bug. Please report what
   you were doing.
-- Closing either window ends the session for both.
+- Closing any window ends the session for everyone.
 
 If something goes wrong
 - Each player has a netplay.log next to PokemonStadiumRecomp.exe. Send
-  both logs along with what you were doing (freeze, crash, out-of-sync
-  message, slowness).
+  everyone's logs along with what you were doing (freeze, crash,
+  out-of-sync message, slowness).

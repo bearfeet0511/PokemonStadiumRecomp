@@ -6,8 +6,9 @@
 #   ... replay     # two instances (a, b) replay that input side by side
 #                  # (-DumpAt <poll> also writes each one's RDRAM at that poll)
 #   ... compare    # first poll where the runs' state hashes differ
-#   ... netplay    # a hosts and b joins over localhost (b plays on keyboard);
-#                  # -LatencyMs <n> delays each side's incoming input like a real network
+#   ... netplay    # a hosts and b (and c with -Players 3) join over localhost;
+#                  # guests play on the keyboard (focused window only);
+#                  # -LatencyMs <n> delays each hop's incoming input like a real network
 #   ... launch     # open a and b with no netplay override (set it up in the launcher)
 #
 # Each instance runs from its own folder under third_party\work\np\ (config,
@@ -15,13 +16,14 @@
 # Stadium save snapshot, with the Transfer Pak off and the launcher skipped.
 param([Parameter(Mandatory)][ValidateSet('setup', 'record', 'replay', 'compare', 'netplay', 'launch')][string]$Step,
       [int]$DumpAt = -1,
-      [int]$LatencyMs = 0)
+      [int]$LatencyMs = 0,
+      [ValidateRange(2, 3)][int]$Players = 2)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $root 'build'
 $np = Join-Path $root 'third_party\work\np'
-$instances = 'rec', 'a', 'b'
+$instances = 'rec', 'a', 'b', 'c'
 $saveName = 'pokestadium.us.1.0.bin'
 
 function Start-Instance($name, $port, $extraEnv) {
@@ -91,16 +93,25 @@ switch ($Step) {
         Write-Host "replaying in a (pid $($a.Id)) and b (pid $($b.Id))"
     }
     'netplay' {
-        foreach ($name in 'a', 'b') { Reset-Save $name }
-        # One person can drive both: the host on the gamepad, the guest on the keyboard.
-        $bConfig = Join-Path $np 'b\launcher.cfg'
-        (Get-Content $bConfig) -replace '^p1_device=.*', 'p1_device=1' | Set-Content $bConfig -Encoding ascii
-        # The host records both players' lockstep input, so a session can be
+        $guests = @('b', 'c')[0..($Players - 2)]
+        foreach ($name in @('a') + $guests) { Reset-Save $name }
+        # One person can drive them all: the host on the gamepad, guests on the
+        # keyboard (only the focused window takes keyboard input).
+        foreach ($name in $guests) {
+            $config = Join-Path $np "$name\launcher.cfg"
+            (Get-Content $config) -replace '^p1_device=.*', 'p1_device=1' | Set-Content $config -Encoding ascii
+        }
+        # The host records every player's lockstep input, so a session can be
         # replayed offline (e.g. to reproduce a crash on another build).
-        $a = Start-Instance 'a' 4382 @{ PSR_NETPLAY = 'host:7311'; PSR_INPUT_RECORD = (Join-Path $np 'a\netplay-input.bin');
+        $a = Start-Instance 'a' 4382 @{ PSR_NETPLAY = "host:7311:$Players"; PSR_INPUT_RECORD = (Join-Path $np 'a\netplay-input.bin');
                                          PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
-        $b = Start-Instance 'b' 4383 @{ PSR_NETPLAY = 'join:127.0.0.1:7311'; PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
-        Write-Host "host a (pid $($a.Id)), guest b (pid $($b.Id))"
+        Write-Host "host a (pid $($a.Id))"
+        $port = 4383
+        foreach ($name in $guests) {
+            $g = Start-Instance $name $port @{ PSR_NETPLAY = 'join:127.0.0.1:7311'; PSR_NETPLAY_LATENCY_MS = "$LatencyMs" }
+            Write-Host "guest $name (pid $($g.Id))"
+            $port++
+        }
     }
     'launch' {
         foreach ($name in 'a', 'b') { Reset-Save $name }
