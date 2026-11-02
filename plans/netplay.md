@@ -79,6 +79,12 @@ same inputs; only audio, profiler and OS memory differ.
   `PSR_NETPLAY` still overrides. Configured Transfer Pak carts no longer
   block a session; they stay unplugged online (no pak reported on any port).
   The `.bat` shortcuts were dropped from the release in favor of the card.
+- 2-4 players (protocol 4, test 4/5): the host relays every input, so each
+  guest only needs a connection to the host. 3 players in sync locally for
+  3,000 reads; over the internet with 3 it worked, with some input delay.
+- Updates (test 6): the launcher checks GitHub releases, shows a banner when
+  a newer test build exists, and Update downloads, verifies (SHA-256 against
+  the release digest), installs and restarts. Saves and settings are kept.
 - (Earlier) release zip (`_package_release.ps1`) includes `Netplay - Host.bat`,
   `Netplay - Join.bat` and `NETPLAY.txt` from `tools\release\`.
 
