@@ -161,6 +161,9 @@ bool has_transfer_pak(int port) {
 }
 
 void shutdown() {
+    if (std::getenv("PSR_GBRING") != nullptr) {
+        librecomp::gbcart::ring_dump(app_file("gbcart_ring.txt").string().c_str(), 0);
+    }
     librecomp::gbcart::flush_all();
     gen1recomp::finish_all();
 }
