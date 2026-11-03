@@ -48,8 +48,8 @@ Inspected from its readme, patch notes and text strings only (no ROMs touched). 
 4. Transfer Pak on Android with standard 32 KB Gen 1 .sav + matching GB ROM. Reads the save AND writes changes back to the .sav reliably (the thing the Mupen64Plus-based Android emulators fail at).
 
 ### Phase 1.5: bug fixes
-- #13 rental roster crash (debug on PC first; repo has trace/diag build scripts).
-- #10 announcer audio static.
+- #13 rental roster crash (debug on PC first; repo has trace/diag build scripts). Fixed 2026-10-30 (runtime patch 0003).
+- #10 announcer audio static. Fixed 2026-11-02 (runtime patch 0006): audio RSP tasks now run when submitted instead of later on the SP task thread, where game threads had already changed the memory they read.
 
 ### Phase 2: enhancements (all optional toggles)
 - Thor second screen: live battle info on the bottom screen, read from game memory (active Pokémon's moves, type, PP, power, accuracy; opponent info). Removes the need to hold a button to read moves. Use pret's Stadium decomp to locate battle structs: https://github.com/pret/pokestadium

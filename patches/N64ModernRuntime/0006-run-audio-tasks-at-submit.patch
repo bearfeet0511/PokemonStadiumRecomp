@@ -1,0 +1,48 @@
+diff --git a/ultramodern/src/events.cpp b/ultramodern/src/events.cpp
+index a947388..d3036ce 100644
+--- a/ultramodern/src/events.cpp
++++ b/ultramodern/src/events.cpp
+@@ -359,6 +359,20 @@ extern "C" void ultramodern_get_vi_debug_state(
+     if (status)     *status = events_context.vi.regs.VI_STATUS_REG;
+ }
+ 
++// Run audio tasks on the submitting thread, so they read RDRAM as it was when
++// the game started them (the RSP runs a task right away on hardware). Queued,
++// they ran later on the SP task thread while game threads kept writing memory
++// the task reads; in Pokemon Stadium that put static on every announcer line
++// (PSR issue #10). The SP task thread still sends completion.
++// PSR_AUDIO_RUN_AT_SUBMIT=0 restores the queued behavior.
++static bool audio_runs_at_submit() {
++    static const bool on = [] {
++        const char* e = std::getenv("PSR_AUDIO_RUN_AT_SUBMIT");
++        return !(e != nullptr && e[0] == '0');
++    }();
++    return on;
++}
++
+ void sp_complete(uint32_t task_type) {
+     uint8_t* rdram = events_context.rdram;
+     recomp_rsp_mark_sp_task_complete(rdram, task_type);
+@@ -402,6 +416,12 @@ void task_thread_func(uint8_t* rdram, moodycamel::LightweightSemaphore* thread_r
+             return;
+         }
+ 
++        // Already executed in submit_rsp_task (PSR_AUDIO_RUN_AT_SUBMIT).
++        if (task->t.type == M_AUDTASK && audio_runs_at_submit()) {
++            sp_complete(task->t.type);
++            continue;
++        }
++
+         if (!ultramodern::rsp::run_task(PASS_RDRAM task)) {
+             // No host microcode for this task (e.g. an audio task on a game whose
+             // aspMain hasn't been recompiled yet). Degrade gracefully instead of
+@@ -726,6 +746,9 @@ extern "C" uint64_t ultramodern_dp_complete_count(void);
+ 
+ void ultramodern::submit_rsp_task(RDRAM_ARG PTR(OSTask) task_) {
+     OSTask* task = TO_PTR(OSTask, task_);
++    if (task->t.type == M_AUDTASK && audio_runs_at_submit()) {
++        ultramodern::rsp::run_task(PASS_RDRAM task);
++    }
+ 
+     // Graphics tasks are routed to the action queue serviced by the gfx thread.
+     if (task->t.type == M_GFXTASK) {

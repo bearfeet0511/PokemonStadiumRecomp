@@ -12,10 +12,17 @@ FIXED together with #7 (register-quit softlock) on a single build —
 see the depth-bounded tailcall fix below.
 
 **OPEN as of 2026-07-02:**
-- **#10 Audio crackle — MOSTLY FIXED; residual: static on announcer
-  lines.** Title/attract/music crackle fixed and user-ear-verified;
-  announcer speech (and the crowd bed under moves) still carries
-  static in battles. See the 2026-07-02 update entry below.
+- **#10 Audio crackle — FIXED in the fork 2026-11-02 (user-verified by
+  ear).** The announcer static came from audio RSP tasks running late:
+  `submit_rsp_task` queued them for the SP task thread, which ran them
+  while game threads kept writing the memory they read. Running each audio
+  task on the submitting thread (as the RSP does on hardware) removed the
+  static on every announcer line; `patches/N64ModernRuntime/0006`,
+  `PSR_AUDIO_RUN_AT_SUBMIT=0` restores the queue. Lead from the 3DS port's
+  strings ("audio snapshots", "pre_executed", "producer repairs"). Earlier
+  fork experiments that did not help: midpoint smoothing of the
+  sample-doubled announcer rings. Title/attract/music crackle was fixed
+  upstream; see the 2026-07-02 entry below.
 - **#13 Free Battle → Rental roster → pokemon detail view crashes
   (fragment eviction).** **FIXED 2026-10-30** (`patches/N64ModernRuntime/0003`).
   See entry below.
