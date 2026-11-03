@@ -1,0 +1,16 @@
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 9ef6f83..d0ade1a 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1664,7 +1664,10 @@ namespace RT64 {
+                             bool useWideViewport = false;
+                             if (proj.type == Projection::Type::Perspective) {
+                                 // The call's scissor spans the whole width of the framebuffer pair scissor. The viewport must not be using an extended origin.
+-                                useWideViewport = (viewportOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.scissorRect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.scissorRect.lrx <= fbPair.scissorRect.lrx);
++                                // (lrx >= like the projection processor's coversWholeWidth; with <= a
++                                // narrow scissor at the left edge got the wide viewport but an
++                                // unstretched projection, so small 3D panels drew stretched.)
++                                useWideViewport = (viewportOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.scissorRect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.scissorRect.lrx >= fbPair.scissorRect.lrx);
+                             }
+                             else {
+                                 // Always use the wide viewport with orthographic projections.
