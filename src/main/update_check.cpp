@@ -43,6 +43,7 @@ namespace {
         std::string commit;
         std::string zip_url;  // the release's .zip asset
         std::string sha256;   // GitHub's digest of that asset (lowercase hex)
+        std::string published; // ISO 8601 UTC, so text order is time order
     };
 
     std::once_flag started;
@@ -85,9 +86,10 @@ namespace {
         return value;
     }
 
-    // Releases newest first, as GitHub lists them. Each release object has
-    // one top-level "tag_name"; its "target_commitish" and "name" follow it,
-    // then its assets, before the next release's tag.
+    // Releases, newest published first. GitHub's own order isn't by date
+    // ("netplay-test9" was listed before "netplay-test10"). Each release
+    // object has one top-level "tag_name"; its "target_commitish", "name" and
+    // "published_at" follow it, then its assets, before the next release's tag.
     std::vector<Release> parse_releases(const std::string& json) {
         std::vector<Release> releases;
         size_t at = json.find("\"tag_name\":\"");
@@ -99,6 +101,7 @@ namespace {
             r.commit = json_string(json, "target_commitish", at, end);
             r.name = json_string(json, "name", at, end);
             r.zip_url = json_string(json, "browser_download_url", at, end);
+            r.published = json_string(json, "published_at", at, end);
             std::string digest = json_string(json, "digest", at, end);
             if (digest.rfind("sha256:", 0) == 0) {
                 r.sha256 = digest.substr(7);
@@ -106,6 +109,8 @@ namespace {
             releases.push_back(r);
             at = next;
         }
+        std::stable_sort(releases.begin(), releases.end(),
+                         [](const Release& a, const Release& b) { return a.published > b.published; });
         return releases;
     }
 
