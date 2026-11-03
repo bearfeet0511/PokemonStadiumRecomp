@@ -64,6 +64,8 @@ Inspected from its readme, patch notes and text strings only (no ROMs touched). 
 
 ### Backlog (added 2026-10-30)
 - Graphics options: widescreen at minimum (RT64 supports it; Stadium's 2D menus/HUD need edge anchoring). An option in the launcher's Settings; default stays 4:3.
+  - Done (2026-11-02): Settings > Aspect ratio "Widescreen battles" (`aspect_ratio=widescreen`, `src/main/widescreen.cpp`). RT64 Expand only while the battle engine is loaded (`gFragments[0x33]`, fragment62 at 0x84300000; fragment ids are `((TEXT_START & 0x0FF00000) >> 20) - 0x10`, not the file number). Menus stay 4:3: in Expand they flicker at the sides, fades only cover the middle, and menu models tear.
+  - Open: battle fades still cover only the 4:3 middle. Stretching full-screen orthographic draws in RT64 also stretched HUD panels and broke the fade's blend, so it was reverted. A real fix probably needs the fade's display list found and given RT64 extended-GBI rect alignment.
 - Easy install for non-developers: a downloadable Windows release (exe + DLLs + gen1recomp\ support files) on the fork's Releases page. Players only pick their own ROM in the launcher, as with other recomps; nobody else should need to build. Ideally built by GitHub Actions on a version tag, but recompiling needs the ROM's code, and ROMs must never enter the repo or CI logs. Work out how; the fallback is building locally and uploading the zip.
 
 ### Later / maybe

@@ -103,6 +103,7 @@ extern "C" const char* psr_app_file_c(const char* name, char* out, unsigned long
 #include "recompui_launcher.h"
 #include "input_bindings.h"
 #include "netplay.h"
+#include "widescreen.h"
 #include "netplay_probe.h"
 
 extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx);
@@ -1401,7 +1402,7 @@ static ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callba
     g_window = SDL_CreateWindow(
         "Pokemon Stadium (PokemonStadiumRecomp)",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        960, 720,
+        pkmnstadium::widescreen::enabled() ? 1280 : 960, 720,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN
     );
     if (!g_window) {
@@ -1436,6 +1437,8 @@ static ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callba
 static std::atomic<bool> s_turbo_persistent{false};
 
 static void update_gfx(void*) {
+    pkmnstadium::widescreen::poll();
+
     // The launcher now runs pre-boot in its own window (recompui_launcher.cpp);
     // by the time update_gfx runs the game owns the window, so every event is a
     // game event.
@@ -2194,10 +2197,16 @@ int main(int argc, char** argv) {
             default: gconf.msaa_option = AA::MSAA4X; break;
         }
 
+        // Widescreen: a 16:9 window that starts at 4:3; widescreen.cpp widens
+        // it only during battles.
+        pkmnstadium::widescreen::init();
+        gconf.ar_option = ultramodern::renderer::AspectRatio::Original;
+
         ultramodern::renderer::set_graphics_config(gconf);
-        std::fprintf(stderr, "[PSR] graphics: wm=%s api=%s ds=%d msaa=%d\n",
+        std::fprintf(stderr, "[PSR] graphics: wm=%s api=%s ds=%d msaa=%d aspect=%s\n",
             gconf.wm_option == ultramodern::renderer::WindowMode::Fullscreen ? "fullscreen" : "windowed",
-            api.c_str(), gconf.ds_option, pkmnstadium::recompui::startup_msaa());
+            api.c_str(), gconf.ds_option, pkmnstadium::recompui::startup_msaa(),
+            pkmnstadium::widescreen::enabled() ? "widescreen" : "4:3");
     }
 
     recomp::GameEntry game{};

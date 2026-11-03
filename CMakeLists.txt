@@ -155,6 +155,7 @@ add_executable(PokemonStadiumRecomp
     src/main/netplay_probe.cpp
     src/main/netplay.cpp
     src/main/update_check.cpp
+    src/main/widescreen.cpp
     src/main/gb_audio.cpp
     src/main/input_bindings.cpp
     src/main/audio_host_probe.cpp

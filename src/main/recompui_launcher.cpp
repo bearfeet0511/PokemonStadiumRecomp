@@ -260,6 +260,7 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
         s.netplay_players = 2;
     }
     s.no_update_check = (cfg.count("check_updates") && !parse_bool(cfg["check_updates"], true)) ? 1 : 0;
+    s.aspect_index = (to_lower_str(get("aspect_ratio")) == "widescreen") ? 1 : 0;
 }
 
 // Persist a committed RecompLauncherCSettings back to launcher.cfg, using the
@@ -323,6 +324,8 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "netplay_players=" << s.netplay_players << "\n";
     f << "# check_updates=on|off : look for a newer release on GitHub when the launcher opens.\n";
     f << "check_updates=" << (s.no_update_check ? "off" : "on") << "\n";
+    f << "# aspect_ratio=original|widescreen : widescreen widens battles; menus stay 4:3.\n";
+    f << "aspect_ratio=" << (s.aspect_index == 1 ? "widescreen" : "original") << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------
@@ -394,6 +397,12 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     static const char* const kRenderers[3] = { "Auto", "Vulkan", "D3D12" };
     gi.renderer_labels = kRenderers;
     gi.num_renderers   = 3;
+
+    // Widescreen applies to battles only (widescreen.cpp); menus are 4:3 art.
+    static const char* const kAspects[2] = { "4:3 (Original)", "Widescreen battles" };
+    gi.aspect_labels       = kAspects;
+    gi.num_aspect_labels   = 2;
+    gi.aspect_experimental = 1;
 
     // The rebind page edits PSR's own input.cfg (next to the exe) — the same
     // file pkmnstadium::input reads; recomp-ui's n64_binds.c replicates its
@@ -528,6 +537,15 @@ int startup_msaa() {
     if (val == "2x"  || val == "2") return 2;
     if (val == "8x"  || val == "8") return 8;
     return 4; // default / "4x"
+}
+
+bool startup_widescreen() {
+    std::string val = "original";
+    auto cfg = read_cfg_map();
+    if (cfg.count("aspect_ratio")) val = cfg["aspect_ratio"];
+    if (const char* e = std::getenv("PSR_ASPECT"); e != nullptr && e[0] != '\0') val = e;
+    val = to_lower_str(val);
+    return val == "widescreen" || val == "expand" || val == "16:9";
 }
 
 std::string startup_audio_device() {
