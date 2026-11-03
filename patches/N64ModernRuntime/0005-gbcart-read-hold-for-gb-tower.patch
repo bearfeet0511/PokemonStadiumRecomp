@@ -1,0 +1,40 @@
+diff --git a/librecomp/src/gbcart.cpp b/librecomp/src/gbcart.cpp
+index 8f8ce6f..463bb4b 100644
+--- a/librecomp/src/gbcart.cpp
++++ b/librecomp/src/gbcart.cpp
+@@ -454,6 +454,27 @@ static bool gbselftest_trace() {
+     return on;
+ }
+ 
++// Hold the reading thread briefly on each cart-memory block read, without
++// yielding to other guest threads, so cart reads take closer to real Transfer
++// Pak time. Stadium's GB Tower preloads ROM banks for a limited time while its
++// Game Boy emulator starts. With instant reads it got through all 44 of
++// Pokemon Red's banks, including the nearly empty bank 44, and then failed
++// ("The Transfer Pak is not set properly", or a hang at the Nintendo logo).
++// At 100us per block the preload stops at bank 43 and Red boots every time.
++// PSR_GBCART_HOLD_US overrides the hold (0 disables it).
++static void cart_read_hold() {
++    static const uint32_t hold_us = [] {
++        const char* e = std::getenv("PSR_GBCART_HOLD_US");
++        return (e != nullptr && e[0] != '\0') ? static_cast<uint32_t>(std::strtoul(e, nullptr, 10)) : 100u;
++    }();
++    if (hold_us == 0) {
++        return;
++    }
++    const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(hold_us);
++    while (std::chrono::steady_clock::now() < until) {
++    }
++}
++
+ int read_block(int port, uint16_t block_address, uint8_t* out) {
+     std::scoped_lock lock(port_mutex);
+     if (port < 0 || port >= port_count || !ports[port].configured) {
+@@ -486,6 +507,7 @@ int read_block(int port, uint16_t block_address, uint8_t* out) {
+         for (int i = 0; i < block_size; i++) {
+             out[i] = ports[port].read(static_cast<uint16_t>(byte_address + i));
+         }
++        cart_read_hold();
+         const Port& pp = ports[port];
+         if (gbselftest_trace() && pp.address_bank == 2) {  // SRAM window read (self-test read-back)
+             char hx[80]; int n = 0;
