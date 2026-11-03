@@ -9,7 +9,7 @@ with Gen1Recomp saves, playing with friends, and an Android build later.
   `slotN.lua` as a cart's battery save. It is converted for Stadium at Play
   and Stadium's changes are merged back on quit, changed sections only, so mod
   data (e.g. nuzlocke tracking) is preserved. Pokémon stored in Stadium and
-  withdrawn later keep their identity. See [`CLAUDE.md`](CLAUDE.md) for details.
+  withdrawn later keep their identity. See [`STADIUM.md`](STADIUM.md) for details.
 - **Two players**, each with their own cart and save, for battles and Pokémon
   Lab trades.
 - **Save safety:** timestamped backups in `saves\backups\` every session; an
@@ -18,7 +18,7 @@ with Gen1Recomp saves, playing with friends, and an Android build later.
   never-published runtime function the input code needed.
 - **Reproducible Windows setup:** `tools\setup_libs.ps1` fetches every
   dependency at pinned versions; `tools/docker_disasm.sh` builds pret's
-  disassembly without a MIPS toolchain. Build steps are in `CLAUDE.md`.
+  disassembly without a MIPS toolchain. Build steps are in `STADIUM.md`.
 
 **Credits**
 - [SS Anne / PokemonStadiumRecomp](https://github.com/mstan/PokemonStadiumRecomp)

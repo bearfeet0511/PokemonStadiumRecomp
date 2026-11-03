@@ -373,7 +373,7 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     gi.name         = "Pok\xC3\xA9mon Stadium";
     gi.region       = "USA";   // target ROM is US v1.0
     // ROM identity: SHA-1 of the target US v1.0 dump (MD5 ed1378bc..., the pin
-    // asserted in CLAUDE.md). The launcher hashes the picked ROM and shows
+    // asserted in STADIUM.md). The launcher hashes the picked ROM and shows
     // "verified" on a match, so its check agrees with the runtime's real gate.
     static const char* const kStadiumSha1[] = {
         "ed7bef5a306f88c0a6e96b15e71fee2ef32058f3",

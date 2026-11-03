@@ -1,7 +1,7 @@
 # Netplay — design (2026-10-30)
 
 Input lockstep over TCP, host = player 1, guest = player 2. Feasibility was
-measured first (see CLAUDE.md, "Determinism experiment"): with the
+measured first (see STADIUM.md, "Determinism experiment"): with the
 deterministic clock, game state stays byte-identical across runs given the
 same inputs; only audio, profiler and OS memory differ.
 

@@ -58,7 +58,7 @@ namespace {
     constexpr uint32_t hash_interval = 120;
     constexpr int mismatches_to_stop = 3;
     // The game heap. Audio, profiler and OS state live below it and differ
-    // between machines without affecting the game (CLAUDE.md, determinism).
+    // between machines without affecting the game (STADIUM.md, determinism).
     constexpr uint32_t heap_start = 0x00100000;
     constexpr uint32_t heap_end = 0x00800000;
 
