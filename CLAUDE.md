@@ -68,6 +68,11 @@ Inspected from its readme, patch notes and text strings only (no ROMs touched). 
   - Open: battle fades still cover only the 4:3 middle. Stretching full-screen orthographic draws in RT64 also stretched HUD panels and broke the fade's blend, so it was reverted. A real fix probably needs the fade's display list found and given RT64 extended-GBI rect alignment.
 - Easy install for non-developers: a downloadable Windows release (exe + DLLs + gen1recomp\ support files) on the fork's Releases page. Players only pick their own ROM in the launcher, as with other recomps; nobody else should need to build. Ideally built by GitHub Actions on a version tag, but recompiling needs the ROM's code, and ROMs must never enter the repo or CI logs. Work out how; the fallback is building locally and uploading the zip.
 
+### Releases (fork pre-releases, `netplay-testNN`)
+- Build so the exe embeds the release commit (`build_ssanne.bat` reconfigures; check `PSR_GIT_COMMIT` in `build\build.ninja` equals `HEAD`), package with `_package_release.ps1 -Version fork-netplay-testNN`, publish with `gh release create --target <full sha> --prerelease`, and confirm GitHub's asset digest matches.
+- GitHub's release list order is not by date (it listed test9 before test10). Builds through test 10 offer whatever GitHub lists first; from `65d913f` on, the launcher picks the newest `published_at`. Tests 6-9 were renamed to `netplay-test06`-`09` for that reason. After publishing, run the previous release's exe from `dist\` for a few seconds and check its `[update]` stderr line offers the new build.
+- Not yet released: `65d913f` (update order fix); bundle with the next fix.
+
 ### Later / maybe
 - Stadium 2 (separate recomp of a different game; much of the platform work would carry over). Check state of any Stadium 2 decomp first. The 3DS port's author (@dave_schobert) said Stadium 2 is his next port; watch it for findings. The same GPL source rules apply if he ships binaries.
 - Netplay. Large; only after everything else is solid. Intended design:
