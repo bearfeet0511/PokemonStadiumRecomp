@@ -32,6 +32,11 @@
 #include <cstdlib>
 
 #define HLSL_CPU
+#if defined(__ANDROID__)
+#include <SDL.h>
+#include <SDL_syswm.h>
+#endif
+
 #include "hle/rt64_application.h"
 
 #include "ultramodern/ultramodern.hpp"
@@ -271,7 +276,13 @@ pokestadium::renderer::RT64Context::RT64Context(uint8_t* rdram,
     RT64::Application::Core appCore{};
 #if defined(_WIN32)
     appCore.window = window_handle.window;
-#elif defined(__linux__) || defined(__ANDROID__)
+#elif defined(__ANDROID__)
+    // RT64 creates its Vulkan surface from the ANativeWindow behind the SDL window.
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    SDL_GetWindowWMInfo(window_handle, &wmInfo);
+    appCore.window = wmInfo.info.android.window;
+#elif defined(__linux__)
     appCore.window = window_handle;
 #elif defined(__APPLE__)
     appCore.window.window = window_handle.window;

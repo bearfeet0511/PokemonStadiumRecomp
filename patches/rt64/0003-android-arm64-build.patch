@@ -1,0 +1,426 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3881276..8506510 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -39,7 +39,10 @@ function(preprocess INFILE OUTFILE OPTIONS)
+     endif()
+ endfunction()
+ 
+-if (WIN32)
++# DXC is a build-time host tool, so an Android build on a Windows machine uses dxc.exe.
++if (ANDROID AND CMAKE_HOST_WIN32)
++    set (DXC "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc.exe")
++elseif (WIN32)
+     set (DXC "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc.exe")
+     add_compile_definitions(NOMINMAX)
+ 
+@@ -59,7 +62,11 @@ elseif (APPLE)
+         set (SPIRVCROSS "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/spirv-cross/lib/arm64:$ENV{DYLD_LIBRARY_PATH}" "${PROJECT_SOURCE_DIR}/src/contrib/spirv-cross/bin/arm64/spirv-cross")
+     endif()
+ else()
+-    if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
++    # DXC is a build-time host tool that compiles HLSL to SPIR-V, so it must
++    # match the HOST architecture, not the target. When cross-compiling (e.g.
++    # for Android), CMAKE_SYSTEM_PROCESSOR is the target arch (aarch64), so key
++    # the selection off CMAKE_HOST_SYSTEM_PROCESSOR instead.
++    if (CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "AMD64")
+         set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc-linux")
+     else()
+         set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/arm64/dxc-linux")
+@@ -70,9 +77,30 @@ set(ZSTD_LEGACY_SUPPORT OFF)
+ set(ZSTD_BUILD_STATIC ON)
+ set(ZSTD_BUILD_SHARED OFF)
+ 
+-add_subdirectory(src/tools/file_to_c)
++# file_to_c runs during the build, so an Android build needs a host-built one
++# (-DRT64_FILE_TO_C), not an arm64 binary.
++if (ANDROID)
++    if (NOT RT64_FILE_TO_C)
++        message(FATAL_ERROR "Android builds need -DRT64_FILE_TO_C pointing at a host-built file_to_c.")
++    endif()
++    set(FILE_TO_C "${RT64_FILE_TO_C}")
++    set(FILE_TO_C_DEP "${RT64_FILE_TO_C}")
++else()
++    add_subdirectory(src/tools/file_to_c)
++    set(FILE_TO_C file_to_c)
++    set(FILE_TO_C_DEP file_to_c)
++endif()
+ add_subdirectory(src/contrib/re-spirv)
+-add_subdirectory(src/contrib/nativefiledialog-extended)
++# The native file dialog is desktop-only.
++if (NOT ANDROID)
++    add_subdirectory(src/contrib/nativefiledialog-extended)
++endif()
++# zstd's dictBuilder needs qsort_r, which Bionic lacks before API 36; only runtime
++# decompression is used, and the zstd CLI needs dictBuilder, so both stay out.
++if (ANDROID)
++    set(ZSTD_BUILD_DICTBUILDER OFF CACHE BOOL "" FORCE)
++    set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
++endif()
+ add_subdirectory(src/contrib/zstd/build/cmake)
+ 
+ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+@@ -90,7 +118,9 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+     if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20.0)
+         add_compile_options(-Wno-deprecated-literal-operator -Wno-nontrivial-memcall)
+     endif()
+-    add_compile_options(-Werror)
++    if (NOT ANDROID)
++        add_compile_options(-Werror)
++    endif()
+ endif()
+ 
+ set(ANDROID_PLATFORM android-24)
+@@ -107,13 +137,52 @@ set (DXC_CS_OPTS "${DXC_COMMON_OPTS}" "-E" "CSMain" "-T cs_6_3")
+ set (DXC_GS_OPTS "${DXC_COMMON_OPTS}" "-E" "GSMain" "-T gs_6_3")
+ set (DXC_RT_OPTS "${DXC_COMMON_OPTS}" "-D" "RT_SHADER" "-T" "lib_6_3" "-fspv-target-env=vulkan1.1spirv1.4" "-fspv-extension=SPV_KHR_ray_tracing" "-fspv-extension=SPV_EXT_descriptor_indexing")
+ 
++# Adreno 6xx compatibility: the Qualcomm Vulkan compiler (driver 0746, frozen
++# 2023) fails to link a compute shader that still contains a non-inlined
++# OpFunctionCall ("Failed to link shaders" / VK_ERROR_UNKNOWN from
++# vkCreateComputePipelines), even though the SPIR-V is valid and links on desktop
++# drivers. The framebuffer compute shaders are compiled at -O0 (a load-bearing
++# workaround for a separate DXC codegen bug in EndianSwapUINT*), which leaves real
++# helper calls un-inlined. We therefore run a uniform spirv-opt inline pass over
++# every compute shader after DXC and validate the result in the same rule, so a
++# bad pass interaction can never ship silently. The pass is a no-op on shaders DXC
++# already fully inlined, costs milliseconds, and regression-proofs any helper
++# function added to a compute shader later. Only wired on Android (the affected
++# target); desktop keeps DXC output verbatim.
++if (ANDROID)
++    file(GLOB RT64_SHADER_TOOLS_DIRS "${ANDROID_NDK}/shader-tools/*")
++    find_program(SPIRV_OPT NAMES spirv-opt HINTS ${RT64_SHADER_TOOLS_DIRS} REQUIRED)
++    find_program(SPIRV_VAL NAMES spirv-val HINTS ${RT64_SHADER_TOOLS_DIRS} REQUIRED)
++    message(STATUS "RT64 Adreno compute-shader inline pass: ${SPIRV_OPT}")
++    # --skip-block-layout applies to spirv-opt's built-in input-validation pass;
++    # see the spirv-val note in build_shader_spirv_impl for why the DX layout is
++    # relaxed. spirv-opt otherwise rejects the -fvk-use-dx-layout StructuredBuffers.
++    set(RT64_SPIRV_INLINE_PASSES --skip-block-layout --eliminate-dead-branches --merge-return --inline-entry-points-exhaustive --eliminate-dead-functions)
++endif()
++
+ function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+     add_custom_command(OUTPUT ${OUTNAME}.spv
+         COMMAND ${DXC} ${DXC_SPV_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.spv
+         DEPENDS ${FILENAME})
++    # RT64_SPIRV_POST_OPT is set by build_compute_shader (CMake dynamic scoping
++    # makes it visible here). See the Adreno 6xx note above.
++    if (ANDROID AND RT64_SPIRV_POST_OPT)
++        # --skip-block-layout: these shaders are compiled with -fvk-use-dx-layout
++        # (DX-style struct packing), which intentionally diverges from Vulkan's
++        # standard block-layout rules; RT64 declares matching descriptor layouts and
++        # they run correctly on-device. spirv-val here is a guard that the inline
++        # pass did not corrupt the module, not a re-check of the layout contract.
++        add_custom_command(OUTPUT ${OUTNAME}.opt.spv
++            COMMAND ${SPIRV_OPT} ${RT64_SPIRV_INLINE_PASSES} ${OUTNAME}.spv -o ${OUTNAME}.opt.spv
++            COMMAND ${SPIRV_VAL} --target-env vulkan1.0 --skip-block-layout ${OUTNAME}.opt.spv
++            DEPENDS ${OUTNAME}.spv)
++        set(RT64_SPIRV_BLOB ${OUTNAME}.opt.spv)
++    else()
++        set(RT64_SPIRV_BLOB ${OUTNAME}.spv)
++    endif()
+     add_custom_command(OUTPUT ${OUTNAME}.spirv.c
+-        COMMAND file_to_c ${OUTNAME}.spv ${TARGET_NAME}BlobSPIRV ${OUTNAME}.spirv.c ${OUTNAME}.spirv.h
+-        DEPENDS ${OUTNAME}.spv file_to_c
++        COMMAND ${FILE_TO_C} ${RT64_SPIRV_BLOB} ${TARGET_NAME}BlobSPIRV ${OUTNAME}.spirv.c ${OUTNAME}.spirv.h
++        DEPENDS ${RT64_SPIRV_BLOB} ${FILE_TO_C_DEP}
+         BYPRODUCTS ${OUTNAME}.spirv.h)
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.spirv.c)
+ endfunction()
+@@ -123,8 +192,8 @@ function(build_shader_dxil_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+         COMMAND ${DXC} ${DXC_DXIL_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.dxil
+         DEPENDS ${FILENAME})
+     add_custom_command(OUTPUT ${OUTNAME}.dxil.c
+-        COMMAND file_to_c ${OUTNAME}.dxil ${TARGET_NAME}BlobDXIL ${OUTNAME}.dxil.c ${OUTNAME}.dxil.h
+-        DEPENDS ${OUTNAME}.dxil file_to_c
++        COMMAND ${FILE_TO_C} ${OUTNAME}.dxil ${TARGET_NAME}BlobDXIL ${OUTNAME}.dxil.c ${OUTNAME}.dxil.h
++        DEPENDS ${OUTNAME}.dxil ${FILE_TO_C_DEP}
+         BYPRODUCTS ${OUTNAME}.dxil.h)
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.dxil.c)
+ endfunction()
+@@ -143,8 +212,8 @@ function(build_shader_msl_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+             COMMAND xcrun -sdk macosx metallib ${OUTNAME}.ir -o ${OUTNAME}.metallib
+             DEPENDS ${OUTNAME}.ir)
+     add_custom_command(OUTPUT ${OUTNAME}.metal.c
+-            COMMAND file_to_c ${OUTNAME}.metallib ${TARGET_NAME}BlobMSL ${OUTNAME}.metal.c ${OUTNAME}.metal.h
+-            DEPENDS ${OUTNAME}.metallib file_to_c
++            COMMAND ${FILE_TO_C} ${OUTNAME}.metallib ${TARGET_NAME}BlobMSL ${OUTNAME}.metal.c ${OUTNAME}.metal.h
++            DEPENDS ${OUTNAME}.metallib ${FILE_TO_C_DEP}
+             BYPRODUCTS ${OUTNAME}.metal.h)
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.metal.c)
+ endfunction()
+@@ -237,8 +306,8 @@ function(preprocess_shader TARGETOBJ SHADERNAME)
+     cmake_path(GET OUTNAME PARENT_PATH OUTPUT_DIR)
+     preprocess(${FILENAME} ${OUTNAME}.rw ${DXC_COMMON_OPTS})
+     add_custom_command(OUTPUT ${OUTNAME}.rw.c
+-        COMMAND file_to_c ${OUTNAME}.rw ${TARGET_NAME}Text ${OUTNAME}.rw.c ${OUTNAME}.rw.h
+-        DEPENDS ${OUTNAME}.rw file_to_c
++        COMMAND ${FILE_TO_C} ${OUTNAME}.rw ${TARGET_NAME}Text ${OUTNAME}.rw.c ${OUTNAME}.rw.h
++        DEPENDS ${OUTNAME}.rw ${FILE_TO_C_DEP}
+         BYPRODUCTS ${OUTNAME}.rw.h)
+     file(MAKE_DIRECTORY ${OUTPUT_DIR})
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.rw.c)
+@@ -271,6 +340,9 @@ function(build_vertex_shader_spec_constants TARGETOBJ SHADERNAME)
+ endfunction()
+ 
+ function(build_compute_shader TARGETOBJ SHADERNAME)
++    # Enable the Adreno 6xx force-inline + validate pass for compute shaders only
++    # (see build_shader_spirv_impl). Raster/RT shaders link fine unmodified.
++    set(RT64_SPIRV_POST_OPT TRUE)
+     build_shader(${TARGETOBJ} ${SHADERNAME} "${DXC_CS_OPTS}" ${ARGN})
+ endfunction()
+ 
+@@ -283,6 +355,22 @@ if (WIN32)
+     set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+     set(SDL2_LIBRARIES "SDL2" "SDL2main")
+     link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
++elseif(ANDROID)
++    # Android has no system SDL2; fetch and build it as part of the NDK build.
++    # SDL2's Android backend supplies the ANativeWindow (via SDLActivity) and
++    # handles input/audio. Plume still creates the Vulkan surface natively from
++    # the ANativeWindow (vkCreateAndroidSurfaceKHR), so PLUME_SDL_VULKAN_ENABLED
++    # stays off here.
++    include(FetchContent)
++    FetchContent_Declare(
++        SDL2
++        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
++        GIT_TAG release-2.32.8
++        GIT_SHALLOW TRUE
++    )
++    FetchContent_MakeAvailable(SDL2)
++    set(SDL2_INCLUDE_DIRS "${SDL2_SOURCE_DIR}/include")
++    set(SDL2_LIBRARIES SDL2)
+ else()
+     find_package(SDL2 REQUIRED)
+ endif()
+@@ -429,9 +517,12 @@ include_directories(
+     "${PROJECT_SOURCE_DIR}/src/contrib/Vulkan-Headers/include"
+     "${PROJECT_SOURCE_DIR}/src/contrib/VulkanMemoryAllocator/include"
+     "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-core/src/api"
+-    "${PROJECT_SOURCE_DIR}/src/contrib/nativefiledialog-extended/src/include"
+ )
+ 
++if (NOT ANDROID)
++    include_directories("${PROJECT_SOURCE_DIR}/src/contrib/nativefiledialog-extended/src/include")
++endif()
++
+ if (WIN32)
+     # DXC only needs to be included during runtime for Windows.
+     include_directories("${PROJECT_SOURCE_DIR}/src/contrib/dxc/inc")
+@@ -448,12 +539,16 @@ set_target_properties(rt64 PROPERTIES PREFIX "")
+ 
+ # Add common libraries.
+ target_link_libraries(rt64 re-spirv)
+-target_link_libraries(rt64 nfd)
++if (NOT ANDROID)
++    target_link_libraries(rt64 nfd)
++endif()
+ target_link_libraries(rt64 libzstd_static)
+ 
+ # Add tools.
+-add_subdirectory(src/tools/texture_hasher)
+-add_subdirectory(src/tools/texture_packer)
++if (NOT ANDROID)
++    add_subdirectory(src/tools/texture_hasher)
++    add_subdirectory(src/tools/texture_packer)
++endif()
+ 
+ # Add any Apple-specific source files and libraries
+ if (APPLE)
+diff --git a/src/gui/rt64_file_dialog.cpp b/src/gui/rt64_file_dialog.cpp
+index c36b024..91319fe 100644
+--- a/src/gui/rt64_file_dialog.cpp
++++ b/src/gui/rt64_file_dialog.cpp
+@@ -7,13 +7,34 @@
+ #include <atomic>
+ #include <cassert>
+ 
++#if !defined(__ANDROID__)
+ #include <nfd.h>
++#endif
+ 
+ namespace RT64 {
+     // FileDialog
+ 
+     std::atomic<bool> FileDialog::isOpen = false;
+ 
++#if defined(__ANDROID__)
++    // No native file browser on Android; these entry points return an empty path.
++    void FileDialog::initialize() {}
++    void FileDialog::finish() {}
++
++    std::filesystem::path FileDialog::getDirectoryPath() {
++        return {};
++    }
++
++    std::filesystem::path FileDialog::getOpenFilename(const std::vector<FileFilter> &filters) {
++        (void)filters;
++        return {};
++    }
++
++    std::filesystem::path FileDialog::getSaveFilename(const std::vector<FileFilter> &filters) {
++        (void)filters;
++        return {};
++    }
++#else
+     void FileDialog::initialize() {
+         NFD_Init();
+     }
+@@ -77,4 +98,5 @@ namespace RT64 {
+         isOpen = false;
+         return path;
+     }
++#endif
+ };
+\ No newline at end of file
+diff --git a/src/hle/rt64_application.cpp b/src/hle/rt64_application.cpp
+index 3e00540..4981628 100644
+--- a/src/hle/rt64_application.cpp
++++ b/src/hle/rt64_application.cpp
+@@ -285,7 +285,14 @@ namespace RT64 {
+ 
+         // Create the swap chain with the buffer count specified from the configuration.
+         const uint32_t bufferCount = (userConfig.displayBuffering == UserConfiguration::DisplayBuffering::Triple) ? 3 : 2;
+-        swapChain = presentGraphicsWorker->commandQueue->createSwapChain(appWindow->windowHandle, bufferCount, RenderFormat::B8G8R8A8_UNORM);
++        #if defined(__ANDROID__)
++        // Android surfaces expose R8G8B8A8_UNORM, not B8G8R8A8_UNORM. The final present is a
++        // shader composite, so the swap chain format is transparent to it.
++        const RenderFormat swapChainFormat = RenderFormat::R8G8B8A8_UNORM;
++#else
++        const RenderFormat swapChainFormat = RenderFormat::B8G8R8A8_UNORM;
++#endif
++        swapChain = presentGraphicsWorker->commandQueue->createSwapChain(appWindow->windowHandle, bufferCount, swapChainFormat);
+ 
+         // Before configuring multisampling, make sure the device actually supports it for the formats we'll use. If it doesn't, turn off antialiasing in the configuration.
+         const RenderSampleCounts colorSampleCounts = device->getSampleCountsSupported(RenderTarget::colorBufferFormat(usesHDR));
+diff --git a/src/hle/rt64_application_window.cpp b/src/hle/rt64_application_window.cpp
+index 07ef521..032095a 100755
+--- a/src/hle/rt64_application_window.cpp
++++ b/src/hle/rt64_application_window.cpp
+@@ -11,6 +11,8 @@
+ #if defined(_WIN32)
+ #   include <Windows.h>
+ #   include <ShellScalingAPI.h>
++#elif defined(__ANDROID__)
++#   include <android/native_window.h>
+ #elif defined(__linux__)
+ #   define Status int
+ #   if !defined(RT64_SDL_WINDOW_VULKAN)
+@@ -103,9 +105,7 @@ namespace RT64 {
+         bounds.top = rect.top;
+         bounds.width = rect.right - rect.left;
+         bounds.height = rect.bottom - rect.top;
+-#   elif defined(__ANDROID__)
+-        static_assert(false && "Android unimplemented");
+-#   elif defined(__linux__) || defined(__APPLE__)
++#   elif defined(__ANDROID__) || defined(__linux__) || defined(__APPLE__)
+         if (SDL_VideoInit(nullptr) != 0) {
+             printf("Failed to init SDL2 video: %s\n", SDL_GetError());
+             assert(false && "Failed to init SDL2 video");
+@@ -145,10 +145,12 @@ namespace RT64 {
+         SDL_GetWindowWMInfo(sdlWindow, &wmInfo);
+ #   if defined(_WIN32)
+         windowHandle = wmInfo.info.win.window;
++#   elif defined(__ANDROID__)
++        // Plume creates the Vulkan surface directly from the ANativeWindow via
++        // vkCreateAndroidSurfaceKHR, so RenderWindow is an ANativeWindow*.
++        windowHandle = wmInfo.info.android.window;
+ #   elif defined(RT64_SDL_WINDOW_VULKAN)
+         windowHandle = sdlWindow;
+-#   elif defined(__ANDROID__)
+-        static_assert(false && "Android unimplemented");
+ #   elif defined(__linux__)
+         windowHandle.display = wmInfo.info.x11.display;
+         windowHandle.window = wmInfo.info.x11.window;
+@@ -281,6 +283,18 @@ namespace RT64 {
+         }
+ 
+         refreshRate = displayMode.refresh_rate;
++#   elif defined(__ANDROID__)
++        // On Android the surface is an ANativeWindow, not an SDL_Window handle,
++        // so query the refresh rate through the SDL window kept in sdlWindow.
++        int displayIndex = (sdlWindow != nullptr) ? SDL_GetWindowDisplayIndex(sdlWindow) : 0;
++        if (displayIndex < 0) {
++            displayIndex = 0;
++        }
++
++        SDL_DisplayMode displayMode = {};
++        if (SDL_GetCurrentDisplayMode(displayIndex, &displayMode) == 0) {
++            refreshRate = displayMode.refresh_rate;
++        }
+ #   elif defined(__linux__)
+         // Sourced from: https://stackoverflow.com/a/66865623
+         XRRScreenResources *screenResources = XRRGetScreenResources(windowHandle.display, windowHandle.window);
+@@ -334,6 +348,9 @@ namespace RT64 {
+         GetWindowRect(windowHandle, &rect);
+         newWindowLeft = rect.left;
+         newWindowTop = rect.top;
++#   elif defined(__ANDROID__)
++        // The Android surface is fullscreen and never moves.
++        return false;
+ #   elif defined(RT64_SDL_WINDOW_VULKAN)
+         SDL_GetWindowPosition(windowHandle, &newWindowLeft, &newWindowTop);
+ #   elif defined(__linux__)
+diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
+index 63b58fe..fb0dfa3 100644
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -550,7 +550,11 @@ namespace RT64 {
+                     }
+                 }
+ 
+-                skipPresent = skipPresent || ext.swapChain->isEmpty();
++                // When the swap chain is invalid (e.g. Android surface lost on background, where
++                // vkCreateSwapchainKHR returns VK_ERROR_SURFACE_LOST_KHR but leaves a stale non-null
++                // handle so isEmpty() reads false), skipping present avoids threadPresent recreating
++                // framebuffers from already-released image views -> vkCreateFramebuffer SIGSEGV.
++                skipPresent = skipPresent || ext.swapChain->isEmpty() || !swapChainValid;
+ 
+                 Present &present = presents[processCursor];
+                 ext.workloadQueue->waitForWorkloadId(present.workloadId);
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 9ef6f83..908fc05 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -334,7 +334,18 @@ namespace RT64 {
+         
+         const bool createSet = (descTextureSet == nullptr) || (descTextureSet->textureCacheSize < (textureCacheSize + 1));
+         if (createSet) {
+-            descTextureSet = std::make_unique<FramebufferRendererDescriptorTextureSet>(worker->device, ((textureCacheSize + 1) * 3) / 2);
++#       if defined(__ANDROID__)
++            // Adreno's frozen driver sizes a VARIABLE_DESCRIPTOR_COUNT descriptor pool by the
++            // binding's full declared count (UpperRange), not the smaller variable count requested,
++            // so every geometric-growth recreation would allocate a full UpperRange UPDATE_AFTER_BIND
++            // pool and re-write the whole texture cache -- a per-scene-load hitch. Allocate the set
++            // once at full UpperRange capacity so it never regrows; per-frame writes below are still
++            // bounded by the real texture count, so unused slots cost nothing.
++            const uint32_t textureSetCapacity = FramebufferRendererDescriptorTextureSet::UpperRange;
++#       else
++            const uint32_t textureSetCapacity = ((textureCacheSize + 1) * 3) / 2;
++#       endif
++            descTextureSet = std::make_unique<FramebufferRendererDescriptorTextureSet>(worker->device, textureSetCapacity);
+         }
+ 
+         if (createSet || (descriptorTextureReplacementMapEnabled != textureCacheReplacementMapEnabled)) {
+diff --git a/src/shaders/FbCommon.hlsli b/src/shaders/FbCommon.hlsli
+index 973ee67..d40e585 100644
+--- a/src/shaders/FbCommon.hlsli
++++ b/src/shaders/FbCommon.hlsli
+@@ -8,7 +8,17 @@
+ #include "Formats.hlsli"
+ 
+ uint EndianSwapUINT16(uint i) {
+-    return ((i << 8) & 0xFF00) | ((i >> 8) & 0xFF);
++    // Adreno 6xx compatibility: the Qualcomm Vulkan compiler (driver 0746, frozen
++    // 2023) fails to link a compute shader containing the OR-of-two-shifted-and-
++    // -masked pattern `((i << 8) & 0xFF00) | ((i >> 8) & 0xFF)` ("Failed to link
++    // shaders" / VK_ERROR_UNKNOWN from vkCreateComputePipelines), even though the
++    // SPIR-V is valid and links on desktop drivers. Masking a single time after
++    // the OR lowers cleanly. The input is pre-masked to 16 bits first so this stays
++    // bit-for-bit equivalent to the original for arbitrary input (the plain
++    // `(i << 8 | i >> 8) & 0xFFFF` would leak input bits 16-23 through the i >> 8
++    // term). FloatToDepth16, the only caller, already produces a <= 16-bit value.
++    i &= 0xFFFFu;
++    return (i << 8 | i >> 8) & 0xFFFFu;
+ }
+ 
+ // This endian swapping function generates a DXC-LLVM code generation bug when optimizations are enabled. All files that include this 

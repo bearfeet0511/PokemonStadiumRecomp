@@ -101,6 +101,18 @@ Gotchas:
 - PSR `main` calls `ultramodern::input::apply_stick_deadzone`, which was never published in any runtime fork, so it's implemented locally in `src/main/main.cpp`.
 - Runtime fixes live in `patches/N64ModernRuntime/*.patch` and `setup_libs.ps1` applies them. Current one: `thread_queue_remove` on a NULL queue crashed `osDestroyThread` when opening the Pokémon Lab's Game Cart Machine.
 
+## Android build (first boot on the AYN Thor 2026-11-16)
+Branch `build/android`. Toolchain under `%LOCALAPPDATA%\Android` (no PATH changes): `jdk-17` (Temurin), `Sdk` (cmdline-tools, NDK 27.1.12297006, CMake 3.22.1, platforms;android-34, build-tools 34.0.0, platform-tools), `gradle-8.0`. Versions follow Goemon64Recomp-Android (GPLv3), which runs the same renderer on the Thor.
+1. A finished Windows build first: the Android build runs its host `build\file_to_c.exe`.
+2. `powershell -ExecutionPolicy Bypass -File tools\android_build.ps1 -Install` configures `build-android\` with the NDK (Ninja from VS Build Tools), builds `libPokemonStadiumRecomp.so` (~22 min clean, 1,003 generated files at `-g0`), stages it with libSDL2 and libc++_shared into `build-android\apk-libs`, and packages `android\` with Gradle (AGP 8.1.2). `-Native` / `-Package` run one half.
+3. The app looks for `baserom.z64` in its folder, `/sdcard/Android/data/io.github.bearfeet0511.pokemonstadium/files/` (push it with adb). `stderr.log` there has the game log; `adb logcat -b crash` has native crashes.
+
+What Android changes:
+- RT64 patch `0003-android-arm64-build`: Goemon's Android changes adapted to our older RT64 (no plume) plus Windows-host bits: dxc.exe for shaders, host `file_to_c` (`-DRT64_FILE_TO_C`), no nfd/zstd tools/texture tools, no `-Werror`, SDL2 2.32.8 fetched, R8G8B8A8 swap chain, Adreno compute-shader inline pass with the NDK's spirv-opt.
+- Top-level CMake: a shared library instead of an exe, no `-march=nehalem` (the runtime's RSP code uses sse2neon), PIC + 16 KB page alignment. `post_mortem.cpp`/`debug_server.cpp` (Win32) are replaced by `android_diag_stubs.cpp`, and the recomp-ui launcher by `android_launcher_stub.cpp` (boots straight in, P1 = first gamepad, Vulkan, no SSAA/MSAA).
+- `main.cpp`: the window needs `SDL_WINDOW_VULKAN` (otherwise SDL takes the surface for OpenGL); `exe_dir()` is the app's external storage folder; the process `chdir`s there, sets `HOME` there (RT64 writes `$HOME/.rt64`), and sends stderr to `stderr.log`.
+- adb was unreliable through the PC's front-panel USB hub ("offline"); a rear motherboard port works.
+
 ## Transfer Pak findings (Windows, 2026-10-30)
 - An empty `pN_save` means no save at all: cart RAM is memory-only and lost at exit, even though the launcher shows "Default (runtime chooses)". Fix planned: default to `<rom basename>.sav` next to the ROM.
 - `gbcart.cpp` `flush_save()` truncates and rewrites the whole 32 KB `.sav` on every 32-byte block write. There's no backup or checksum check yet (planned, following the 3DS port's design).

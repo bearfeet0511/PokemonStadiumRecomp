@@ -99,3 +99,9 @@ TO_ADAPT_FROM_BATTLESHIP.md
 # regenerable from a live run via the debug server (gbtower_trace / tpak_ring).
 # Analysis lives in memory + the session handoff; the raw dumps are not source.
 _issue_logs/issue17_*.json
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

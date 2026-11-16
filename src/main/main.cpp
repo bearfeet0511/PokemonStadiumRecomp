@@ -34,11 +34,15 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 #include <commdlg.h>
 #include <dbghelp.h>
+#else
+#include <sys/stat.h>
+#endif
 // Avoid Windows.h macro pollution clobbering identifiers in
 // librecomp/ultramodern headers below.
 #undef ERROR
@@ -69,6 +73,11 @@ std::filesystem::path exe_dir() {
     char buf[MAX_PATH] = {0};
     GetModuleFileNameA(nullptr, buf, MAX_PATH);
     return std::filesystem::path(buf).parent_path();
+#elif defined(__ANDROID__)
+    // There is no folder next to an APK. Use the app's storage folder, which a
+    // file manager or adb can reach: Android/data/<package>/files.
+    const char* storage = SDL_AndroidGetExternalStoragePath();
+    return std::filesystem::path(storage != nullptr ? storage : SDL_AndroidGetInternalStoragePath());
 #else
     return std::filesystem::current_path();
 #endif
@@ -1403,7 +1412,13 @@ static ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callba
         "Pokemon Stadium (PokemonStadiumRecomp)",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         pkmnstadium::widescreen::enabled() ? 1280 : 960, 720,
+#if defined(__ANDROID__)
+        // Without the Vulkan flag SDL claims the Android surface for OpenGL, and
+        // RT64 can no longer create its own Vulkan surface on it.
+        SDL_WINDOW_FULLSCREEN | SDL_WINDOW_VULKAN
+#else
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN
+#endif
     );
     if (!g_window) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -1418,6 +1433,8 @@ static ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callba
     SDL_GetWindowWMInfo(g_window, &wmInfo);
 #if defined(_WIN32)
     return ultramodern::renderer::WindowHandle{ wmInfo.info.win.window, GetCurrentThreadId() };
+#elif defined(__ANDROID__)
+    return g_window;
 #elif defined(__linux__)
     return ultramodern::renderer::WindowHandle{ wmInfo.info.x11.window };
 #elif defined(__APPLE__)
@@ -1996,6 +2013,19 @@ int main(int argc, char** argv) {
     // SDL requires SDL_SetMainReady() before the first SDL_Init on that path.
     SDL_SetMainReady();
 
+#if defined(__ANDROID__)
+    // Android starts apps in "/". Saves and configs use paths relative to the
+    // working directory, so run from the app's storage folder.
+    std::error_code cwd_error;
+    std::filesystem::current_path(pkmnstadium::exe_dir(), cwd_error);
+    // RT64 keeps its settings under $HOME, which apps can't write on Android.
+    setenv("HOME", pkmnstadium::exe_dir().string().c_str(), 1);
+    // stderr goes nowhere on Android; keep the log where a file manager can reach it.
+    if (std::freopen((pkmnstadium::exe_dir() / "stderr.log").string().c_str(), "w", stderr) != nullptr) {
+        std::setvbuf(stderr, nullptr, _IONBF, 0);
+    }
+#endif
+
 #ifdef _WIN32
     // Catch unhandled SEH exceptions from any thread (incl. game thread)
     // so silent crashes get diagnosed. Disable the Win32 error dialog
@@ -2353,7 +2383,7 @@ int main(int argc, char** argv) {
         GetModuleFileNameA(NULL, exe_path_buf, MAX_PATH);
         std::filesystem::path exe_dir = std::filesystem::path(exe_path_buf).parent_path();
 #else
-        std::filesystem::path exe_dir = std::filesystem::current_path();
+        std::filesystem::path exe_dir = pkmnstadium::exe_dir();
 #endif
         std::filesystem::path cfg_path = exe_dir / "rom.cfg";
 

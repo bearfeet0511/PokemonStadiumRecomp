@@ -46,6 +46,13 @@ if (WIN32)
     endforeach()
 endif()
 
+# Everything ends up inside one shared library on Android; loadable segments
+# aligned for devices with 16 KB pages.
+if (ANDROID)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+endif()
+
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
@@ -105,6 +112,11 @@ target_include_directories(RecompiledFuncs PRIVATE
 )
 file(GLOB FUNC_C_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/generated/*.c)
 target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES})
+# Debug info for 2.7 GB of generated C costs far more memory and disk than it
+# is worth; crashes there are diagnosed from the guest address.
+if (ANDROID)
+    target_compile_options(RecompiledFuncs PRIVATE -g0)
+endif()
 
 # NOTE: the register-quit/GB-Tower TRACE_ENTRY/RETURN hooks (PKMNSTADIUM_TRACE_HOOKS)
 # were removed 2026-06 — Issues #7/#11 are resolved and the per-function [jrdiag]
@@ -139,11 +151,15 @@ if(PSR_GEO_PROBE)
 endif()
 
 # ---- Runner executable ------------------------------------------------------
-add_executable(PokemonStadiumRecomp
+# On Android, SDLActivity loads a shared library and calls SDL_main inside it.
+if (ANDROID)
+    add_library(PokemonStadiumRecomp SHARED)
+else()
+    add_executable(PokemonStadiumRecomp)
+endif()
+target_sources(PokemonStadiumRecomp PRIVATE
     src/main/main.cpp
-    src/main/post_mortem.cpp
     src/main/rt64_render_context.cpp
-    src/main/debug_server.cpp
     src/main/ares_worker.cpp
     src/main/register_overlays.cpp
     src/main/rsp_aspmain_hook.cpp
@@ -170,11 +186,24 @@ add_executable(PokemonStadiumRecomp
     # njpgdspMain is the standard libultra JPEG ucode (vendored from Zelda64Recomp's recompiled output).
     ${CMAKE_SOURCE_DIR}/rsp/njpgdspMain.cpp
 
-    # ---- Pre-boot launcher host glue ---------------------------------------
-    # Wraps the shared recomp-ui C ABI (recomp_launcher_run_window); the launcher
-    # itself is added to this target by recomp_target_launcher_ui() below.
-    src/main/recompui_launcher.cpp
 )
+
+# The crash reporter and TCP debug server use Win32 APIs throughout.
+if (ANDROID)
+    target_sources(PokemonStadiumRecomp PRIVATE src/main/android_diag_stubs.cpp)
+else()
+    target_sources(PokemonStadiumRecomp PRIVATE src/main/post_mortem.cpp src/main/debug_server.cpp)
+endif()
+
+# ---- Pre-boot launcher host glue ---------------------------------------
+# Wraps the shared recomp-ui C ABI (recomp_launcher_run_window); the launcher
+# itself is added to this target by recomp_target_launcher_ui() below. Android
+# has no launcher window yet, so it gets the settings getters on their own.
+if (ANDROID)
+    target_sources(PokemonStadiumRecomp PRIVATE src/main/android_launcher_stub.cpp)
+else()
+    target_sources(PokemonStadiumRecomp PRIVATE src/main/recompui_launcher.cpp)
+endif()
 
 target_include_directories(PokemonStadiumRecomp PRIVATE
     ${CMAKE_SOURCE_DIR}/include
@@ -196,8 +225,11 @@ target_include_directories(PokemonStadiumRecomp PRIVATE
 target_compile_options(PokemonStadiumRecomp PRIVATE
     -fno-strict-aliasing
     -fms-extensions
-    -march=nehalem  # Required by RT64's RSP simulator (SSSE3, SSE4.1, SSE4.2)
 )
+# Required by RT64's RSP simulator (SSSE3, SSE4.1, SSE4.2). ARM64 goes through sse2neon.
+if (NOT ANDROID)
+    target_compile_options(PokemonStadiumRecomp PRIVATE -march=nehalem)
+endif()
 
 # The runner sources (main.cpp, rt64_render_context.cpp) include RT64's hlslpp
 # via Windows headers; without NOMINMAX the min/max macros break hlslpp's min()/
@@ -260,6 +292,11 @@ if (WIN32)
     target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 opengl32 Winmm.lib dbghelp.lib comdlg32.lib ole32.lib avrt.lib ws2_32.lib winhttp.lib bcrypt.lib miniz)
 endif()
 
+if (ANDROID)
+    # rt64 fetched SDL2; SDL2main wires SDL_main to SDLActivity. miniz comes with librecomp.
+    target_link_libraries(PokemonStadiumRecomp PRIVATE SDL2 SDL2main android log miniz)
+endif()
+
 target_link_libraries(PokemonStadiumRecomp PRIVATE
     RecompiledFuncs
     librecomp
@@ -312,14 +349,16 @@ target_include_directories(PokemonStadiumRecomp PRIVATE
 # SDL2 backend. rt64 ships but does NOT compile the OpenGL3 backend (it renders
 # via Vulkan/D3D12), and recomp-ui's pre-boot window is OpenGL — so we compile
 # that one backend here, against rt64's (1.90.x) ImGui, matching its core.
-set(RECOMP_UI_HOST_IMGUI ON)
-set(RECOMP_UI_HOST_IMGUI_INCLUDE
-    ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui
-    ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui/backends)
-include(${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
-recomp_target_launcher_ui(PokemonStadiumRecomp)
-target_sources(PokemonStadiumRecomp PRIVATE
-    ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui/backends/imgui_impl_opengl3.cpp)
+if (NOT ANDROID)
+    set(RECOMP_UI_HOST_IMGUI ON)
+    set(RECOMP_UI_HOST_IMGUI_INCLUDE
+        ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui
+        ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui/backends)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
+    recomp_target_launcher_ui(PokemonStadiumRecomp)
+    target_sources(PokemonStadiumRecomp PRIVATE
+        ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/imgui/backends/imgui_impl_opengl3.cpp)
+endif()
 # recomp_target_launcher_ui() pins the target to C++17 (for ImGui); PSR's runner
 # needs C++20 (main.cpp), and ImGui compiles cleanly under 20, so restore it.
 set_target_properties(PokemonStadiumRecomp PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
@@ -345,7 +384,7 @@ set_source_files_properties(src/main/netplay.cpp src/main/update_check.cpp PROPE
 # terms; its LICENSE.MD ships alongside.
 set(GEN1RECOMP_SRC_DIR "${CMAKE_SOURCE_DIR}/third_party/gen1recomp")
 set(GEN1RECOMP_LUAJIT "${CMAKE_SOURCE_DIR}/third_party/luajit/src/luajit${CMAKE_EXECUTABLE_SUFFIX}")
-if(EXISTS "${GEN1RECOMP_SRC_DIR}/src" AND EXISTS "${GEN1RECOMP_LUAJIT}")
+if(NOT ANDROID AND EXISTS "${GEN1RECOMP_SRC_DIR}/src" AND EXISTS "${GEN1RECOMP_LUAJIT}")
     set(GEN1RECOMP_OUT "$<TARGET_FILE_DIR:PokemonStadiumRecomp>/gen1recomp")
     add_custom_command(TARGET PokemonStadiumRecomp POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory

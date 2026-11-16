@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The native code is built by tools\android_build.ps1 (CMake + the NDK), which
+// stages the libraries into build-android\apk-libs. Gradle only packages them:
+// driving 1,000 generated C files through Gradle's CMake integration adds nothing.
+def buildAndroid = new File(rootProject.projectDir, "../build-android")
+
+android {
+    namespace 'io.github.bearfeet0511.pokemonstadium'
+    compileSdk 34
+    ndkVersion '27.1.12297006'
+
+    defaultConfig {
+        applicationId "io.github.bearfeet0511.pokemonstadium"
+        // aligned_alloc in Bionic needs API 28. Vulkan 1.1+ handhelds are well above it.
+        minSdk 28
+        targetSdk 34
+        versionCode 1
+        versionName "0.1.0-dev"
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = [new File(buildAndroid, "apk-libs")]
+            // SDL's Java half comes from the same checkout as its native half.
+            java.srcDirs += new File(buildAndroid, "_deps/sdl2-src/android-project/app/src/main/java")
+        }
+    }
+}
