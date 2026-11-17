@@ -105,7 +105,7 @@ Gotchas:
 Branch `build/android`. Toolchain under `%LOCALAPPDATA%\Android` (no PATH changes): `jdk-17` (Temurin), `Sdk` (cmdline-tools, NDK 27.1.12297006, CMake 3.22.1, platforms;android-34, build-tools 34.0.0, platform-tools), `gradle-8.0`. Versions follow Goemon64Recomp-Android (GPLv3), which runs the same renderer on the Thor.
 1. A finished Windows build first: the Android build runs its host `build\file_to_c.exe`.
 2. `powershell -ExecutionPolicy Bypass -File tools\android_build.ps1 -Install` configures `build-android\` with the NDK (Ninja from VS Build Tools), builds `libPokemonStadiumRecomp.so` (~22 min clean, 1,003 generated files at `-g0`), stages it with libSDL2 and libc++_shared into `build-android\apk-libs`, and packages `android\` with Gradle (AGP 8.1.2). `-Native` / `-Package` run one half.
-3. The app looks for `baserom.z64` in its folder, `/sdcard/Android/data/io.github.bearfeet0511.pokemonstadium/files/` (push it with adb). `stderr.log` there has the game log; `adb logcat -b crash` has native crashes.
+3. The app looks for `baserom.z64` in its folder, `/sdcard/Android/data/io.github.bearfeet0511.stadiumrecomp/files/` (push it with adb). `stderr.log` there has the game log; `adb logcat -b crash` has native crashes.
 
 What Android changes:
 - RT64 patch `0003-android-arm64-build`: Goemon's Android changes adapted to our older RT64 (no plume) plus Windows-host bits: dxc.exe for shaders, host `file_to_c` (`-DRT64_FILE_TO_C`), no nfd/zstd tools/texture tools, no `-Werror`, SDL2 2.32.8 fetched, R8G8B8A8 swap chain, Adreno compute-shader inline pass with the NDK's spirv-opt.

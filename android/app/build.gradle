@@ -8,12 +8,12 @@ plugins {
 def buildAndroid = new File(rootProject.projectDir, "../build-android")
 
 android {
-    namespace 'io.github.bearfeet0511.pokemonstadium'
+    namespace 'io.github.bearfeet0511.stadiumrecomp'
     compileSdk 34
     ndkVersion '27.1.12297006'
 
     defaultConfig {
-        applicationId "io.github.bearfeet0511.pokemonstadium"
+        applicationId "io.github.bearfeet0511.stadiumrecomp"
         // aligned_alloc in Bionic needs API 28. Vulkan 1.1+ handhelds are well above it.
         minSdk 28
         targetSdk 34

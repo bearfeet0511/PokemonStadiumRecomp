@@ -1,4 +1,4 @@
-package io.github.bearfeet0511.pokemonstadium;
+package io.github.bearfeet0511.stadiumrecomp;
 
 import org.libsdl.app.SDLActivity;
 
