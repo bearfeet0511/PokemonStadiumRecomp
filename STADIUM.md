@@ -125,7 +125,19 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Record layout (Gen 1 party struct with shifts): `+0` species (internal index; 0 for some rentals), `+1` HP (u16 BE), `+3` level (box), `+4` status (Gen 1 bits: sleep 0-2, PSN 3, BRN 4, FRZ 5, PAR 6), `+5/+6` types, `+8..+0B` move IDs, `+0x1F..+0x22` PP (top 2 bits are PP Ups), `+0x23` level, `+0x24` fainted flag (0/1), `+0x25` max HP (u16 BE), `+0x2F` nickname/species name (ASCII). HP and the fainted flag update when a Pokemon faints; check whether they update every hit.
 - Active Pokemon: pointer at `0x800FCB18` -> battle copy (heap). `+0x0B` Pokedex number, `+0x0C` current HP (u16 BE, live), `+0x1C/+0x1D` types, `+0x1F..+0x22` moves, `+0x26` level, `+0x28` max HP, `+0x32..+0x35` PP. Match it to a record by moves + level. A second copy at `ptr + 0x340` is likely the opponent's (unverified).
 - Move names: NUL-separated ASCII list in move-ID order in the ROM (US v1.0 at `0x795A98`, starting "POUND"). Read them from the user's ROM at runtime; don't copy game text into the repo.
-- Still to find: the list of the 3 picked Pokemon.
+- Picks: the records are in pick order, and `0x800AE546` holds how many are in the battle (3 or 6).
+- Battle menu: fragment62 base + `0x90068` points to the active menu object; its `+0x18` was `0x66` at the first menu and `0x93` at the move list in one Thor battle. Tapping a move uses this (press A, wait for the move list, press the C-button) but did NOT work on first try (2026-11-16); read `[battle-panel]` lines in `stderr.log` to see which menu it saw.
+- Controls (from the game's screen): moves are C-up / C-right / C-down / C-left for move slots 1-4; L cancels. The button that sends out each Pokemon is still unknown.
+
+## Android to-do (2026-11-16, end of session)
+- Tap-to-use-move doesn't work yet (see Battle memory, battle menu); read the tap log first.
+- Big frame drops when moves are used in battle on the Thor. Check whether it's the panel (JNI read every 250 ms, battle_menu() on every input poll) or the game itself (compare with the panel closed).
+- Widescreen on Android tears the enemy portrait in half (the PC also showed portraits out of their boxes again in a Free Battle).
+- Bottom screen when not in battle: show Stadium's own logo, drawn from the user's ROM at runtime.
+- Panel text: more adjustments to come (user feedback).
+- Team cards: add the button that sends out each Pokemon, once known.
+- The Windows build hasn't been rebuilt from `build/android`; check it still builds and runs before merging.
+- Earlier open items: GB Tower load time and off-centre picture, music quieter than PC, Transfer Pak saves back to PokeDaisy, a touch launcher/ROM picker.
 
 ## Transfer Pak findings (Windows, 2026-10-30)
 - An empty `pN_save` means no save at all: cart RAM is memory-only and lost at exit, even though the launcher shows "Default (runtime chooses)". Fix planned: default to `<rom basename>.sav` next to the ROM.
