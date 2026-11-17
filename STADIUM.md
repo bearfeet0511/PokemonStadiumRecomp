@@ -119,6 +119,14 @@ Android status (2026-11-16, Thor): boots, runs smoothly, sound works, gamepad in
 - GB Tower's picture is off-centre (shifted left/down) with a rainbow line at the top, on Android only; normal screens are centred. GB Tower uses its own VI mode.
 - The debug APK doubled from 371 to 739 MB between builds (unexplained).
 
+## Battle memory (for the second-screen panel, found 2026-11-16)
+Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_dump.py`, via the debug server's `rdram_peek`) and diffing turns. US v1.0 addresses:
+- `D_800AE540` (passed to the battle engine, fragment62) holds both sides. Player block header at `0x800AE540` (trainer name), then 6 records at `0x800AE561`, stride `0x54`. Opponent block `0x21C` later: header at `0x800AE75C` (name "COM"), records at `0x800AE77D`. Records are in the cart/roster order, not pick order.
+- Record layout (Gen 1 party struct with shifts): `+0` species (internal index; 0 for some rentals), `+1` HP (u16 BE), `+3` level (box), `+4` status (Gen 1 bits: sleep 0-2, PSN 3, BRN 4, FRZ 5, PAR 6), `+5/+6` types, `+8..+0B` move IDs, `+0x1F..+0x22` PP (top 2 bits are PP Ups), `+0x23` level, `+0x24` fainted flag (0/1), `+0x25` max HP (u16 BE), `+0x2F` nickname/species name (ASCII). HP and the fainted flag update when a Pokemon faints; check whether they update every hit.
+- Active Pokemon: pointer at `0x800FCB18` -> battle copy (heap). `+0x0B` Pokedex number, `+0x0C` current HP (u16 BE, live), `+0x1C/+0x1D` types, `+0x1F..+0x22` moves, `+0x26` level, `+0x28` max HP, `+0x32..+0x35` PP. Match it to a record by moves + level. A second copy at `ptr + 0x340` is likely the opponent's (unverified).
+- Move names: NUL-separated ASCII list in move-ID order in the ROM (US v1.0 at `0x795A98`, starting "POUND"). Read them from the user's ROM at runtime; don't copy game text into the repo.
+- Still to find: the list of the 3 picked Pokemon.
+
 ## Transfer Pak findings (Windows, 2026-10-30)
 - An empty `pN_save` means no save at all: cart RAM is memory-only and lost at exit, even though the launcher shows "Default (runtime chooses)". Fix planned: default to `<rom basename>.sav` next to the ROM.
 - `gbcart.cpp` `flush_save()` truncates and rewrites the whole 32 KB `.sav` on every 32-byte block write. There's no backup or checksum check yet (planned, following the 3DS port's design).
