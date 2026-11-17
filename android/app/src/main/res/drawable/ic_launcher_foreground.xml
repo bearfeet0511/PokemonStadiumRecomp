@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original artwork: a battle stadium seen from above, with two trainer
+     platforms on the field. Drawn for this project; no Nintendo/Game Freak art.
+     Adaptive icon foreground: 108x108 with the visible area inside 18..90. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Stands -->
+    <path
+        android:fillColor="#E8EDF5"
+        android:pathData="M54,30 C74,30 88,41 88,54 C88,67 74,78 54,78 C34,78 20,67 20,54 C20,41 34,30 54,30 Z" />
+    <!-- Crowd rows -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B9C3D6"
+        android:strokeWidth="1.6"
+        android:pathData="M54,34 C71,34 84,43 84,54 C84,65 71,74 54,74 C37,74 24,65 24,54 C24,43 37,34 54,34 Z" />
+    <!-- Field -->
+    <path
+        android:fillColor="#3FA34D"
+        android:pathData="M54,38 C68,38 79,45 79,54 C79,63 68,70 54,70 C40,70 29,63 29,54 C29,45 40,38 54,38 Z" />
+    <!-- Centre line -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.4"
+        android:pathData="M54,38.5 L54,69.5" />
+    <!-- Centre circle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.4"
+        android:pathData="M54,49 C57.3,49 59.5,51.2 59.5,54 C59.5,56.8 57.3,59 54,59 C50.7,59 48.5,56.8 48.5,54 C48.5,51.2 50.7,49 54,49 Z" />
+    <!-- Red trainer platform -->
+    <path
+        android:fillColor="#E3342F"
+        android:pathData="M38,49.5 L44,49.5 L44,58.5 L38,58.5 Z" />
+    <!-- Blue trainer platform -->
+    <path
+        android:fillColor="#2F6FE3"
+        android:pathData="M64,49.5 L70,49.5 L70,58.5 L64,58.5 Z" />
+</vector>

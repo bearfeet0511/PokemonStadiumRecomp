@@ -47,6 +47,11 @@ Copy-Item (Join-Path $ndk 'toolchains\llvm\prebuilt\windows-x86_64\sysroot\usr\l
 
 Push-Location (Join-Path $root 'android')
 try {
+    # Debug packaging is incremental: a changed file is appended to the existing
+    # APK and the old copy left as dead space, so each rebuild of the 370 MB
+    # library grew the APK by another copy. Start from a fresh APK.
+    Remove-Item (Join-Path $root 'android\app\build\outputs\apk') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $root 'android\app\build\intermediates\packaged_res') -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-Checked "`"$gradle`" --no-daemon assembleDebug > `"$root\_gradle_android.log`" 2>&1"
 } finally {
     Pop-Location
