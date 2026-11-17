@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Display;
 import android.view.View;
+import android.view.WindowManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,6 +59,9 @@ public class BattlePanel extends Presentation {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Touches still arrive, but key and controller focus stays with the game:
+        // a focusable panel took the gamepad away from it on the first tap.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         view = new PanelView(getContext());
         setContentView(view);
     }
@@ -176,11 +180,7 @@ public class BattlePanel extends Presentation {
             final float w = getWidth(), h = getHeight();
             canvas.drawColor(Color.rgb(16, 22, 38));
             if (!inBattle || mons.isEmpty()) {
-                text.setTextSize(h * 0.04f);
-                text.setColor(Color.rgb(150, 160, 185));
-                text.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("Battle info appears here during battles", w / 2, h / 2, text);
-                text.setTextAlign(Paint.Align.LEFT);
+                for (int i = 0; i < 4; i++) moveTappable[i] = false;
                 return;
             }
             final float pad = Math.min(w, h) * 0.025f;
