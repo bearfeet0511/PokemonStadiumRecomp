@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -94,23 +95,99 @@ std::string clean(std::string text) {
 
 } // namespace
 
-// Long enough for the game to see the press on a couple of controller polls.
-constexpr auto kTapHold = std::chrono::milliseconds(120);
-static std::atomic<uint16_t> s_tap_buttons{0};
-static std::atomic<int64_t> s_tap_until{0};
+// Tapping a move: the C-buttons only pick a move once the move list is open, so
+// a tap first checks which battle menu has control. Found by diffing RDRAM at
+// the first menu and at the move list (Thor, 2026-11-16): the battle engine keeps
+// a pointer to the active menu object at fragment base + 0x90068, and that
+// object's +0x18 is 0x66 at the first menu and 0x93 at the move list.
+constexpr uint32_t kMenuPtrOffset = 0x90068;
+constexpr uint32_t kMenuIdFirst = 0x66;
+constexpr uint32_t kMenuIdMoves = 0x93;
+constexpr uint16_t kButtonA = 0x8000;
+constexpr int64_t kHoldMs = 100;      // long enough for a couple of controller polls
+constexpr int64_t kGiveUpMs = 1500;   // the move list never came up
+
+enum class TapPhase { Idle, Start, PressA, WaitMoves, PressMove };
+
+static std::mutex s_tap_mutex;
+static TapPhase s_phase = TapPhase::Idle;
+static uint16_t s_move_button = 0;
+static int64_t s_phase_start = 0;
+static int64_t s_tap_start = 0;
 
 static int64_t now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-void press(uint16_t buttons) {
-    s_tap_buttons.store(buttons);
-    s_tap_until.store(now_ms() + kTapHold.count());
+enum class Menu { Unknown, First, Moves };
+
+static Menu battle_menu(const uint8_t* rdram) {
+    if (rdram == nullptr) return Menu::Unknown;
+    const uint32_t frag = read32(rdram, kFragments + kBattleFrag * 8);
+    if (frag == 0 || !in_rdram(frag + kMenuPtrOffset, 4)) return Menu::Unknown;
+    const uint32_t menu = read32(rdram, frag + kMenuPtrOffset);
+    if (!in_rdram(menu, 0x20)) return Menu::Unknown;
+    const uint32_t id = read32(rdram, menu + 0x18);
+    return id == kMenuIdMoves ? Menu::Moves : id == kMenuIdFirst ? Menu::First : Menu::Unknown;
 }
 
+static const char* menu_name(Menu menu) {
+    return menu == Menu::Moves ? "moves" : menu == Menu::First ? "first" : "unknown";
+}
+
+void press(uint16_t buttons) {
+    std::lock_guard lock(s_tap_mutex);
+    s_move_button = buttons;
+    s_phase = TapPhase::Start;
+    s_tap_start = s_phase_start = now_ms();
+}
+
+// Called on every controller poll for Player 1, on the game thread. Walks the
+// tap through: (first menu) press A, wait for the move list, press the move.
 uint16_t tapped_buttons() {
-    return now_ms() < s_tap_until.load() ? s_tap_buttons.load() : 0;
+    std::lock_guard lock(s_tap_mutex);
+    if (s_phase == TapPhase::Idle) return 0;
+    const int64_t now = now_ms();
+    const Menu menu = battle_menu(recomp_runtime_get_rdram());
+
+    if (s_phase == TapPhase::Start) {
+        std::fprintf(stderr, "[battle-panel] tap %#06x at menu %s\n", s_move_button, menu_name(menu));
+        if (menu == Menu::Moves) {
+            s_phase = TapPhase::PressMove;
+        } else if (menu == Menu::First) {
+            s_phase = TapPhase::PressA;
+        } else {
+            s_phase = TapPhase::Idle; // not a menu we know: press nothing
+            return 0;
+        }
+        s_phase_start = now;
+    }
+
+    switch (s_phase) {
+        case TapPhase::PressA:
+            if (now - s_phase_start < kHoldMs) return kButtonA;
+            s_phase = TapPhase::WaitMoves;
+            s_phase_start = now;
+            return 0;
+        case TapPhase::WaitMoves:
+            if (menu == Menu::Moves) {
+                s_phase = TapPhase::PressMove;
+                s_phase_start = now;
+                return s_move_button;
+            }
+            if (now - s_tap_start > kGiveUpMs) {
+                std::fprintf(stderr, "[battle-panel] move list didn't open (menu %s)\n", menu_name(menu));
+                s_phase = TapPhase::Idle;
+            }
+            return 0;
+        case TapPhase::PressMove:
+            if (now - s_phase_start < kHoldMs) return s_move_button;
+            s_phase = TapPhase::Idle;
+            return 0;
+        default:
+            return 0;
+    }
 }
 
 // Research aid for platforms without the debug server: creating `rdram_dump.request`
