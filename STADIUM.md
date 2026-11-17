@@ -113,6 +113,12 @@ What Android changes:
 - `main.cpp`: the window needs `SDL_WINDOW_VULKAN` (otherwise SDL takes the surface for OpenGL); `exe_dir()` is the app's external storage folder; the process `chdir`s there, sets `HOME` there (RT64 writes `$HOME/.rt64`), and sends stderr to `stderr.log`.
 - adb was unreliable through the PC's front-panel USB hub ("offline"); a rear motherboard port works.
 
+Android status (2026-11-16, Thor): boots, runs smoothly, sound works, gamepad input works. Transfer Pak works with a cart in the app folder (`carts/`, paths relative to the app folder in `launcher.cfg`; push files with adb, `chmod 666` so the app can write them). Open:
+- Music sounds quieter relative to effects and announcer than on PC (unconfirmed; compare the same scene on PC).
+- GB Tower boots Red but loads in ~49 s (PC: a few seconds). Cause: `send_external_message_after` starts a thread per SI DMA (two per Transfer Pak block, ~22k blocks), ~1 ms each on Bionic. Tried and reverted: (1) sending sub-ms messages immediately: fast, but GB Tower's time-limited preload reached bank 44 and failed ("Transfer Pak not set properly"); (2) one long-lived sender thread: low frame rate during the load, then the same error. The preload depends on the loader blocking per read so other guest threads run; a fix must keep that (e.g. a timed wait inside the guest scheduler) and be checked against the bank-44 failure.
+- GB Tower's picture is off-centre (shifted left/down) with a rainbow line at the top, on Android only; normal screens are centred. GB Tower uses its own VI mode.
+- The debug APK doubled from 371 to 739 MB between builds (unexplained).
+
 ## Transfer Pak findings (Windows, 2026-10-30)
 - An empty `pN_save` means no save at all: cart RAM is memory-only and lost at exit, even though the launcher shows "Default (runtime chooses)". Fix planned: default to `<rom basename>.sav` next to the ROM.
 - `gbcart.cpp` `flush_save()` truncates and rewrites the whole 32 KB `.sav` on every 32-byte block write. There's no backup or checksum check yet (planned, following the 3DS port's design).
