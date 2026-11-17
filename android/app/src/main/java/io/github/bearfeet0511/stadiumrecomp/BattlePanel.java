@@ -27,8 +27,12 @@ public class BattlePanel extends Presentation {
 
     // Stadium's move buttons: the 4 move slots go clockwise round the C-buttons.
     private static final String[] MOVE_BUTTONS = { "C▲", "C▶", "C▼", "C◀" };
+    // The matching N64 button bits (CONT_E, CONT_F, CONT_D, CONT_C).
+    private static final int[] MOVE_BUTTON_BITS = { 0x0008, 0x0001, 0x0004, 0x0002 };
 
     static native String nativeSnapshot();
+
+    static native void nativePress(int buttons);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PanelView view;
@@ -86,10 +90,49 @@ public class BattlePanel extends Presentation {
         private boolean inBattle;
         private final List<Mon> mons = new ArrayList<>();
         private String last = "";
+        // Where each of the active Pokemon's moves was drawn, for taps.
+        private final RectF[] moveRects = { new RectF(), new RectF(), new RectF(), new RectF() };
+        private final boolean[] moveTappable = new boolean[4];
+        private int flashMove = -1;
 
         PanelView(Context context) {
             super(context);
             text.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            if (event.getActionMasked() != android.view.MotionEvent.ACTION_DOWN) {
+                return true;
+            }
+            for (int i = 0; i < 4; i++) {
+                if (moveTappable[i] && moveRects[i].contains(event.getX(), event.getY())) {
+                    try {
+                        nativePress(MOVE_BUTTON_BITS[i]);
+                    } catch (UnsatisfiedLinkError e) {
+                        return true;
+                    }
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                    flashMove = i;
+                    invalidate();
+                    postDelayed(() -> {
+                        flashMove = -1;
+                        invalidate();
+                    }, 150);
+                    return true;
+                }
+            }
+            return true;
+        }
+
+        /** Sets the paint to the largest size up to maxSize at which text fits maxWidth. */
+        private void fit(String s, float maxSize, float maxWidth) {
+            float size = maxSize;
+            text.setTextSize(size);
+            while (size > 8f && text.measureText(s) > maxWidth) {
+                size *= 0.92f;
+                text.setTextSize(size);
+            }
         }
 
         void update(String snapshot) {
@@ -154,6 +197,7 @@ public class BattlePanel extends Presentation {
 
             // Right: the active Pokemon's moves.
             final float left = split + pad / 2, right = w - pad;
+            for (int i = 0; i < 4; i++) moveTappable[i] = false;
             if (active == null) {
                 text.setTextSize(h * 0.04f);
                 text.setColor(Color.rgb(150, 160, 185));
@@ -164,7 +208,11 @@ public class BattlePanel extends Presentation {
             }
             final float moveH = (h - pad * 5) / 4;
             for (int i = 0; i < 4; i++) {
-                drawMove(canvas, MOVE_BUTTONS[i], active.moves[i], active.pp[i], left, pad + i * (moveH + pad), right, moveH);
+                float top = pad + i * (moveH + pad);
+                if (drawMove(canvas, MOVE_BUTTONS[i], active.moves[i], active.pp[i], left, top, right, moveH, i == flashMove)) {
+                    moveRects[i].set(left, top, right, top + moveH);
+                    moveTappable[i] = true;
+                }
             }
         }
 
@@ -186,19 +234,21 @@ public class BattlePanel extends Presentation {
             final float x = left + inset;
             final float width = right - left - inset * 2;
 
-            // Name, and level + status on the right.
-            float size = height * 0.2f;
-            text.setTextSize(size);
-            text.setColor(Color.WHITE);
-            text.setAlpha(alpha);
+            // Name, and level or status on the right.
+            float size = height * 0.15f;
             float y = top + inset + size * 0.9f;
-            c.drawText(m.name, x, y, text);
             String tag = m.fainted ? "FNT" : m.status.isEmpty() ? "Lv " + m.level : m.status;
+            text.setTextSize(size);
+            float tagWidth = text.measureText(tag);
             text.setTextAlign(Paint.Align.RIGHT);
             text.setColor(m.fainted ? Color.rgb(230, 90, 90) : statusColor(m.status));
             text.setAlpha(alpha);
             c.drawText(tag, right - inset, y, text);
             text.setTextAlign(Paint.Align.LEFT);
+            fit(m.name, size, width - tagWidth - inset);
+            text.setColor(Color.WHITE);
+            text.setAlpha(alpha);
+            c.drawText(m.name, x, y, text);
 
             // HP bar with numbers under it.
             float barTop = y + size * 0.45f;
@@ -214,19 +264,20 @@ public class BattlePanel extends Presentation {
                 c.drawRoundRect(rect, barH / 2, barH / 2, fill);
                 fill.setAlpha(255);
             }
-            text.setTextSize(height * 0.16f);
+            text.setTextSize(height * 0.12f);
             text.setColor(Color.rgb(200, 206, 222));
             text.setAlpha(alpha);
-            c.drawText("HP " + m.hp + " / " + m.maxHp, x, barTop + barH + height * 0.2f, text);
+            c.drawText("HP " + m.hp + " / " + m.maxHp, x, barTop + barH + height * 0.17f, text);
             text.setAlpha(255);
         }
 
-        private void drawMove(Canvas c, String button, String move, String pp, float left, float top, float right, float height) {
-            if (move == null || move.isEmpty()) return;
+        /** Draws one move row; returns false for an empty move slot. */
+        private boolean drawMove(Canvas c, String button, String move, String pp, float left, float top, float right, float height, boolean flash) {
+            if (move == null || move.isEmpty()) return false;
             final float round = height * 0.15f;
             rect.set(left, top, right, top + height);
             fill.setStyle(Paint.Style.FILL);
-            fill.setColor(Color.rgb(30, 38, 58));
+            fill.setColor(flash ? Color.rgb(80, 110, 170) : Color.rgb(30, 38, 58));
             c.drawRoundRect(rect, round, round, fill);
 
             // Button chip.
@@ -240,16 +291,19 @@ public class BattlePanel extends Presentation {
             text.setTextAlign(Paint.Align.CENTER);
             c.drawText(button, rect.centerX(), rect.centerY() + chip * 0.18f, text);
 
-            // Move name and PP.
-            text.setTextAlign(Paint.Align.LEFT);
-            text.setTextSize(height * 0.3f);
-            text.setColor(Color.WHITE);
-            c.drawText(move, rect.right + inset, top + height / 2 + height * 0.11f, text);
+            // PP on the right, then the move name in the space left between.
+            final float nameLeft = rect.right + inset;
+            final String ppText = "PP " + pp;
             text.setTextAlign(Paint.Align.RIGHT);
-            text.setTextSize(height * 0.26f);
+            text.setTextSize(height * 0.19f);
+            final float ppWidth = text.measureText(ppText);
             text.setColor("0".equals(pp) ? Color.rgb(230, 80, 70) : Color.rgb(170, 180, 205));
-            c.drawText("PP " + pp, right - inset, top + height / 2 + height * 0.1f, text);
+            c.drawText(ppText, right - inset, top + height / 2 + height * 0.07f, text);
             text.setTextAlign(Paint.Align.LEFT);
+            fit(move, height * 0.22f, right - inset - ppWidth - inset - nameLeft);
+            text.setColor(Color.WHITE);
+            c.drawText(move, nameLeft, top + height / 2 + height * 0.08f, text);
+            return true;
         }
 
         private static int statusColor(String status) {

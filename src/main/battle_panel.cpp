@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -92,6 +94,25 @@ std::string clean(std::string text) {
 
 } // namespace
 
+// Long enough for the game to see the press on a couple of controller polls.
+constexpr auto kTapHold = std::chrono::milliseconds(120);
+static std::atomic<uint16_t> s_tap_buttons{0};
+static std::atomic<int64_t> s_tap_until{0};
+
+static int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void press(uint16_t buttons) {
+    s_tap_buttons.store(buttons);
+    s_tap_until.store(now_ms() + kTapHold.count());
+}
+
+uint16_t tapped_buttons() {
+    return now_ms() < s_tap_until.load() ? s_tap_buttons.load() : 0;
+}
+
 // Research aid for platforms without the debug server: creating `rdram_dump.request`
 // next to the game makes the next snapshot write all 8 MB of RDRAM, in N64 byte
 // order, to `rdram_dump.bin` (then the request is removed).
@@ -164,5 +185,11 @@ std::string snapshot() {
 extern "C" JNIEXPORT jstring JNICALL
 Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeSnapshot(JNIEnv* env, jclass) {
     return env->NewStringUTF(pkmnstadium::battle_panel::snapshot().c_str());
+}
+
+// Called from BattlePanel.java when a move is tapped.
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativePress(JNIEnv*, jclass, jint buttons) {
+    pkmnstadium::battle_panel::press(static_cast<uint16_t>(buttons));
 }
 #endif

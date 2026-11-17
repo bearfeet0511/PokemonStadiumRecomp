@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 // Battle info for a second-screen panel, read from game memory (see battle_panel.cpp
@@ -13,5 +14,10 @@ namespace pkmnstadium::battle_panel {
 //   "mon\t<name>\t<level>\t<hp>\t<max hp>\t<status>\t<active 0/1>\t<fainted 0/1>"
 //   "\t<move>\t<pp>" x4             (empty move name for an empty slot)
 std::string snapshot();
+
+// A tap on the panel holds an N64 button (CONT_* mask) briefly; the input code
+// ORs tapped_buttons() into Player 1's buttons.
+void press(uint16_t buttons);
+uint16_t tapped_buttons();
 
 } // namespace pkmnstadium::battle_panel

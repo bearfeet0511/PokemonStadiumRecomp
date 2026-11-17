@@ -113,6 +113,7 @@ extern "C" const char* psr_app_file_c(const char* name, char* out, unsigned long
 #include "input_bindings.h"
 #include "netplay.h"
 #include "widescreen.h"
+#include "battle_panel.h"
 #include "netplay_probe.h"
 
 extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx);
@@ -1696,6 +1697,9 @@ static bool get_n64_input(int controller_num, uint16_t* buttons_out, float* x_ou
     // because their tables are OR'd together.
     const Uint8* ks = use_kb ? SDL_GetKeyboardState(nullptr) : nullptr;
     pkmnstadium::input::accumulate(pad, ks, &b, &lx, &ly);
+    // Moves tapped on the second-screen battle panel press their button here,
+    // like the controller would (so netplay sends them too).
+    if (primary_port) b |= pkmnstadium::battle_panel::tapped_buttons();
 
     // Saturate the summed stick (a pad tilt plus keyboard keys can exceed the
     // axis range) before the deadzone rescale.
