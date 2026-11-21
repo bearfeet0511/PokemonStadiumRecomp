@@ -48,6 +48,7 @@
 
 #include "pokestadium_render.h"
 #include "debug_server.h"
+#include "recompui_launcher.h"
 
 static RT64::UserConfiguration::Antialiasing device_max_msaa = RT64::UserConfiguration::Antialiasing::None;
 static bool sample_positions_supported = false;
@@ -196,6 +197,22 @@ static void set_application_user_config(RT64::Application* application,
             std::fprintf(stderr, "[psr-rt64] forced downsampleMultiplier = %d\n", dm);
         } else {
             std::fprintf(stderr, "[psr-rt64] PSR_RT64_DOWNSAMPLE='%s' rejected (need int in [1,8])\n", d);
+        }
+    }
+    // Frame interpolation (experimental): launcher.cfg framerate=60 makes RT64 draw
+    // 60 frames per second, generating in-between frames from the game's 30 (the
+    // game logic is unchanged). Fast motion can glitch for a frame (Dratini's body
+    // splits). PSR_RT64_FPS=<n> overrides it for testing.
+    if (pkmnstadium::recompui::startup_framerate() == 60) {
+        application->userConfig.refreshRate = RT64::UserConfiguration::RefreshRate::Manual;
+        application->userConfig.refreshRateTarget = 60;
+    }
+    if (const char* f = std::getenv("PSR_RT64_FPS")) {
+        const int fps = std::atoi(f);
+        if (fps >= 30 && fps <= 240) {
+            application->userConfig.refreshRate = RT64::UserConfiguration::RefreshRate::Manual;
+            application->userConfig.refreshRateTarget = fps;
+            std::fprintf(stderr, "[psr-rt64] forced refresh rate = %d fps (interpolated)\n", fps);
         }
     }
     // High-precision (16-bit float) colour buffers: RT64's Automatic picks them

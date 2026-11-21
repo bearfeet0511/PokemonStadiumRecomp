@@ -268,6 +268,7 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
 // startup_* getters read graphics_api/supersampling/antialiasing/window_mode/
 // audio_device.
 void write_settings_to_cfg(const RecompLauncherCSettings& s) {
+    const int framerate_to_keep = startup_framerate();
     std::ofstream f(pkmnstadium::exe_dir() / "launcher.cfg", std::ios::trunc);
     if (!f) {
         std::fprintf(stderr, "[recompui] WARN: cannot write launcher.cfg\n");
@@ -326,6 +327,9 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "check_updates=" << (s.no_update_check ? "off" : "on") << "\n";
     f << "# aspect_ratio=original|widescreen : widescreen widens battles; menus stay 4:3.\n";
     f << "aspect_ratio=" << (s.aspect_index == 1 ? "widescreen" : "original") << "\n";
+    // Not in the launcher UI yet: keep whatever the file had.
+    f << "# framerate=30|60 : 60 draws in-between frames (experimental: brief glitches on fast motion).\n";
+    f << "framerate=" << framerate_to_keep << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------
@@ -537,6 +541,15 @@ int startup_msaa() {
     if (val == "2x"  || val == "2") return 2;
     if (val == "8x"  || val == "8") return 8;
     return 4; // default / "4x"
+}
+
+// Experimental, off by default: framerate=60 makes RT64 draw in-between frames
+// (the game logic stays at 30). No launcher control yet; edit launcher.cfg.
+int startup_framerate() {
+    auto cfg = read_cfg_map();
+    std::string val = cfg.count("framerate") ? cfg["framerate"] : "30";
+    if (const char* e = std::getenv("PSR_FPS"); e != nullptr && e[0] != '\0') val = e;
+    return val == "60" ? 60 : 30;
 }
 
 bool startup_widescreen() {

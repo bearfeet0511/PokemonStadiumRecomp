@@ -42,6 +42,7 @@ std::string startup_graphics_api();   // "auto" | "vulkan" | "d3d12"
 int         startup_ds_option();      // supersampling depth: 1 | 2 | 4
 int         startup_msaa();           // MSAA sample count: 0 | 2 | 4 | 8
 bool        startup_widescreen();     // aspect_ratio=widescreen (default 4:3)
+int         startup_framerate();      // framerate=60: RT64 in-between frames (experimental; default 30)
 std::string startup_audio_device();   // device-name substring; "" = system default
 
 } // namespace pkmnstadium::recompui

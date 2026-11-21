@@ -61,6 +61,8 @@ int startup_ds_option() { return 1; }
 int startup_msaa() { return 0; }
 // Off by default, as on PC: launcher.cfg aspect_ratio=widescreen turns it on.
 bool startup_widescreen() { return cfg_value("aspect_ratio") == "widescreen"; }
+// Experimental, off by default: launcher.cfg framerate=60 adds in-between frames.
+int startup_framerate() { return cfg_value("framerate") == "60" ? 60 : 30; }
 std::string startup_audio_device() { return ""; }
 
 } // namespace pkmnstadium::recompui
