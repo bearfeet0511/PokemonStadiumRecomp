@@ -100,13 +100,28 @@ namespace {
             r.tag = json_string(json, "tag_name", at, end);
             r.commit = json_string(json, "target_commitish", at, end);
             r.name = json_string(json, "name", at, end);
-            r.zip_url = json_string(json, "browser_download_url", at, end);
             r.published = json_string(json, "published_at", at, end);
-            std::string digest = json_string(json, "digest", at, end);
-            if (digest.rfind("sha256:", 0) == 0) {
-                r.sha256 = digest.substr(7);
+            // The Windows .zip among the assets (releases also carry the Android
+            // .apk). Each asset's "digest" comes before its "browser_download_url",
+            // after the previous asset's.
+            const std::string url_key = "\"browser_download_url\":\"";
+            size_t asset_start = at;
+            for (size_t u = json.find(url_key, at); u != std::string::npos && u < end; u = json.find(url_key, u + 1)) {
+                const std::string url = json_string(json, "browser_download_url", u, end);
+                if (url.size() > 4 && url.compare(url.size() - 4, 4, ".zip") == 0) {
+                    r.zip_url = url;
+                    std::string digest = json_string(json, "digest", asset_start, u);
+                    if (digest.rfind("sha256:", 0) == 0) {
+                        r.sha256 = digest.substr(7);
+                    }
+                    break;
+                }
+                asset_start = u + 1;
             }
-            releases.push_back(r);
+            // A release with no Windows download (Android only) isn't an update here.
+            if (!r.zip_url.empty()) {
+                releases.push_back(r);
+            }
             at = next;
         }
         std::stable_sort(releases.begin(), releases.end(),

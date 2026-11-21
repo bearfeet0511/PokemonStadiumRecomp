@@ -57,6 +57,13 @@ public class LauncherActivity extends Activity {
     private static final int PICK_CART = 10;   // + player index
     private static final int PICK_SAVE = 20;   // + player index
     private static final int EXPORT_SAVE = 30; // + player index
+    private static final int PICK_BACKUP_DIR = 40;
+
+    // GitHub releases of this fork; Android builds are attached as
+    // StadiumRecomp-android-<versionName>-<versionCode>.apk.
+    private static final String RELEASES_URL = "https://api.github.com/repos/bearfeet0511/PokemonStadiumRecomp/releases?per_page=20";
+    private static final java.util.regex.Pattern APK_NAME = java.util.regex.Pattern.compile("^StadiumRecomp-android-.*-(\\d+)\\.apk$");
+    private static final String ACTION_INSTALL_STATUS = "io.github.bearfeet0511.stadiumrecomp.INSTALL_STATUS";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private File dir;
@@ -65,9 +72,11 @@ public class LauncherActivity extends Activity {
     private TextView romStatus, message;
     private final TextView[] cartStatus = new TextView[2];
     private final TextView[] saveStatus = new TextView[2];
-    private Button playButton;
+    private Button playButton, updateButton;
+    private TextView backupStatus;
     private BattlePanel panel;
     private boolean busy;
+    private String updateUrl, updateName;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,6 +85,14 @@ public class LauncherActivity extends Activity {
         readConfig();
         setContentView(buildUi());
         refresh();
+        new Thread(this::backupSaves).start();
+        if (!"off".equals(cfg.get("check_updates"))) new Thread(this::checkForUpdate).start();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (ACTION_INSTALL_STATUS.equals(intent.getAction())) onInstallStatus(intent);
     }
 
     @Override
@@ -112,6 +129,10 @@ public class LauncherActivity extends Activity {
         TextView title = text("Stadium Recomp", 26, Color.WHITE, true);
         column.addView(title);
         column.addView(text("Version " + versionName(), 13, Color.rgb(150, 160, 185), false));
+        updateButton = button("", v -> startUpdate());
+        updateButton.setVisibility(View.GONE);
+        updateButton.setBackground(stateBackground(Color.rgb(40, 140, 70), Color.rgb(60, 180, 90)));
+        column.addView(updateButton);
 
         column.addView(header("Game"));
         romStatus = text("", 15, Color.rgb(200, 206, 222), false);
@@ -145,6 +166,18 @@ public class LauncherActivity extends Activity {
         column.addView(toggle("Battle panel (dual-screen devices)", "Moves, team and tap controls on the second screen, e.g. the AYN Thor's bottom screen",
                 !"off".equals(cfg.get("bottom_screen")),
                 (b, on) -> cfg.put("bottom_screen", on ? "on" : "off")));
+
+        column.addView(toggle("Check for updates", "Looks for a newer build on GitHub when the launcher opens",
+                !"off".equals(cfg.get("check_updates")),
+                (b, on) -> cfg.put("check_updates", on ? "on" : "off")));
+
+        column.addView(header("Save backups"));
+        backupStatus = text("", 15, Color.rgb(200, 206, 222), false);
+        column.addView(backupStatus);
+        column.addView(button("Choose backup folder", v -> {
+            if (busy) return;
+            startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_BACKUP_DIR);
+        }));
 
         message = text("", 14, Color.rgb(250, 204, 40), false);
         message.setPadding(0, dp(12), 0, 0);
@@ -281,6 +314,10 @@ public class LauncherActivity extends Activity {
         }
         playButton.setEnabled(rom != null && !busy);
         playButton.setAlpha(playButton.isEnabled() ? 1f : 0.5f);
+        String tree = cfg.get("backup_tree");
+        backupStatus.setText(tree == null || tree.isEmpty()
+                ? "Not set. Saves live in the app folder, which Android deletes if the app is uninstalled."
+                : "Saves are copied to: " + Uri.decode(Uri.parse(tree).getLastPathSegment()) + "/StadiumRecomp");
     }
 
     private void say(String s) {
@@ -317,6 +354,7 @@ public class LauncherActivity extends Activity {
     private void play() {
         if (busy || romFile() == null) return;
         writeConfig();
+        backupSaves();
         startActivity(new Intent(this, MainActivity.class));
         finish();
     }
@@ -358,6 +396,15 @@ public class LauncherActivity extends Activity {
         super.onActivityResult(request, result, data);
         if (result != RESULT_OK || data == null || data.getData() == null) return;
         final Uri uri = data.getData();
+        if (request == PICK_BACKUP_DIR) {
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            cfg.put("backup_tree", uri.toString());
+            writeConfig();
+            refresh();
+            new Thread(this::backupSaves).start();
+            return;
+        }
         busy = true;
         refresh();
         new Thread(() -> {
@@ -486,6 +533,189 @@ public class LauncherActivity extends Activity {
         StringBuilder s = new StringBuilder();
         for (byte x : b) s.append(String.format(Locale.US, "%02x", x & 0xFF));
         return s.toString();
+    }
+
+    // ---- Save backups -------------------------------------------------------
+
+    /**
+     * Copies the Stadium save and each player's cart save into StadiumRecomp/ in
+     * the folder the player chose. That folder survives uninstalling the app,
+     * unlike the app folder. Runs when the launcher opens (after a session) and
+     * on Play. Overwrites the previous copies.
+     */
+    private synchronized void backupSaves() {
+        String tree = cfg.get("backup_tree");
+        if (tree == null || tree.isEmpty()) return;
+        java.util.List<File> files = new java.util.ArrayList<>();
+        File[] stadium = new File(dir, "saves").listFiles((d, n) -> n.endsWith(".bin"));
+        if (stadium != null) java.util.Collections.addAll(files, stadium);
+        for (int p = 1; p <= 2; p++) {
+            String s = cfg.get("p" + p + "_save");
+            if (s != null && !s.isEmpty() && new File(dir, s).exists()) files.add(new File(dir, s));
+        }
+        if (files.isEmpty()) return;
+        try {
+            Uri treeUri = Uri.parse(tree);
+            Uri root = android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri,
+                    android.provider.DocumentsContract.getTreeDocumentId(treeUri));
+            Uri folder = findOrCreate(treeUri, root, "StadiumRecomp", android.provider.DocumentsContract.Document.MIME_TYPE_DIR);
+            for (File f : files) {
+                Uri doc = findOrCreate(treeUri, folder, f.getName(), "application/octet-stream");
+                try (InputStream in = new FileInputStream(f); OutputStream out = getContentResolver().openOutputStream(doc, "wt")) {
+                    if (out == null) continue;
+                    byte[] buf = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+            }
+            Log.i(TAG, "backed up " + files.size() + " save(s)");
+        } catch (Exception e) {
+            Log.w(TAG, "save backup failed", e);
+            say("Save backup failed: " + e.getMessage() + ". Choose the backup folder again.");
+        }
+    }
+
+    private Uri findOrCreate(Uri treeUri, Uri parent, String name, String mime) throws IOException {
+        String parentId = android.provider.DocumentsContract.getDocumentId(parent);
+        Uri children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId);
+        try (Cursor c = getContentResolver().query(children, new String[] {
+                android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null)) {
+            while (c != null && c.moveToNext()) {
+                if (name.equals(c.getString(1))) {
+                    return android.provider.DocumentsContract.buildDocumentUriUsingTree(treeUri, c.getString(0));
+                }
+            }
+        }
+        Uri created = android.provider.DocumentsContract.createDocument(getContentResolver(), parent, mime, name);
+        if (created == null) throw new IOException("can't create " + name);
+        return created;
+    }
+
+    // ---- Updates ------------------------------------------------------------
+
+    private int versionCode() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /** Looks for an Android build newer than this one among the fork's GitHub releases. */
+    private void checkForUpdate() {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(RELEASES_URL).openConnection();
+            c.setRequestProperty("Accept", "application/vnd.github+json");
+            c.setRequestProperty("User-Agent", "StadiumRecomp-Android");
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            String body;
+            try (InputStream in = c.getInputStream()) {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[1 << 14];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                body = out.toString("UTF-8");
+            }
+            org.json.JSONArray releases = new org.json.JSONArray(body);
+            int best = versionCode();
+            String url = null, name = null;
+            for (int i = 0; i < releases.length(); i++) {
+                org.json.JSONObject r = releases.getJSONObject(i);
+                if (r.optBoolean("draft")) continue;
+                org.json.JSONArray assets = r.optJSONArray("assets");
+                for (int a = 0; assets != null && a < assets.length(); a++) {
+                    org.json.JSONObject asset = assets.getJSONObject(a);
+                    java.util.regex.Matcher m = APK_NAME.matcher(asset.optString("name"));
+                    if (m.matches() && Integer.parseInt(m.group(1)) > best) {
+                        best = Integer.parseInt(m.group(1));
+                        url = asset.optString("browser_download_url");
+                        name = r.optString("name", r.optString("tag_name"));
+                    }
+                }
+            }
+            Log.i(TAG, "update check: installed " + versionCode() + ", newest " + best);
+            if (url != null) {
+                final String u = url, n = name;
+                ui.post(() -> {
+                    updateUrl = u;
+                    updateName = n;
+                    updateButton.setText("Update available: " + n + " (download and install)");
+                    updateButton.setVisibility(View.VISIBLE);
+                });
+            }
+        } catch (Exception e) {
+            Log.i(TAG, "update check failed: " + e); // offline, rate-limited, ...: try next time
+        }
+    }
+
+    /** Downloads the new APK and hands it to Android's installer, which asks the player to confirm. */
+    private void startUpdate() {
+        if (busy || updateUrl == null) return;
+        busy = true;
+        refresh();
+        new Thread(() -> {
+            File apk = new File(getExternalCacheDir(), "update.apk");
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(updateUrl).openConnection();
+                c.setRequestProperty("User-Agent", "StadiumRecomp-Android");
+                long total = c.getContentLengthLong();
+                try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[1 << 16];
+                    long done = 0, shown = 0;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        if (done - shown > (8 << 20)) {
+                            shown = done;
+                            say(total > 0 ? String.format(Locale.US, "Downloading %s: %d%%", updateName, done * 100 / total)
+                                          : String.format(Locale.US, "Downloading %s: %d MB", updateName, done >> 20));
+                        }
+                    }
+                }
+                say("Installing… Android will ask you to confirm.");
+                android.content.pm.PackageInstaller installer = getPackageManager().getPackageInstaller();
+                android.content.pm.PackageInstaller.SessionParams params = new android.content.pm.PackageInstaller.SessionParams(
+                        android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+                params.setAppPackageName(getPackageName());
+                int id = installer.createSession(params);
+                try (android.content.pm.PackageInstaller.Session session = installer.openSession(id)) {
+                    try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("update.apk", 0, apk.length())) {
+                        byte[] buf = new byte[1 << 16];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        session.fsync(out);
+                    }
+                    Intent status = new Intent(this, LauncherActivity.class).setAction(ACTION_INSTALL_STATUS);
+                    android.app.PendingIntent pending = android.app.PendingIntent.getActivity(this, 0, status,
+                            android.app.PendingIntent.FLAG_MUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+                    session.commit(pending.getIntentSender());
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "update failed", e);
+                say("Update failed: " + e.getMessage());
+                ui.post(() -> {
+                    busy = false;
+                    refresh();
+                });
+            }
+        }).start();
+    }
+
+    private void onInstallStatus(Intent intent) {
+        int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
+        if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirm != null) startActivity(confirm);
+            return;
+        }
+        busy = false;
+        refresh();
+        if (status != android.content.pm.PackageInstaller.STATUS_SUCCESS) {
+            say("Update not installed: " + intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE));
+        }
     }
 
     // ---- Second screen ------------------------------------------------------

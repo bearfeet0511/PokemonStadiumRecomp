@@ -4,6 +4,8 @@
     <!-- Files live in the app's own storage folder, so no storage permission. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The launcher installs updates downloaded from GitHub (the player confirms each one). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:name="android.hardware.vulkan.version"
         android:version="0x400003" android:required="true" />
@@ -23,6 +25,7 @@
         <activity
             android:name=".LauncherActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
             <intent-filter>
