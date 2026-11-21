@@ -24,6 +24,22 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
     cmake_policy(SET CMP0135 NEW)
 endif()
 
+# Released binaries must not carry the builder's home folder (and so their user
+# name): code that records __FILE__ (asserts, logging) embeds absolute source
+# paths. Map the home folder to "~" for this project and everything added below
+# (runtime, RT64, SDL, the NDK's headers).
+if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND DEFINED ENV{USERPROFILE})
+    file(TO_CMAKE_PATH "$ENV{USERPROFILE}" PSR_HOME_FWD)
+    string(REPLACE "/" "\\" PSR_HOME_BACK "${PSR_HOME_FWD}")
+    foreach(home IN ITEMS "${PSR_HOME_FWD}" "${PSR_HOME_BACK}")
+        if (CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+            add_compile_options("/clang:-ffile-prefix-map=${home}=~")
+        else()
+            add_compile_options("-ffile-prefix-map=${home}=~")
+        endif()
+    endforeach()
+endif()
+
 # Statically link the MSVC C/C++ runtime so the shipped executable does not
 # depend on the Visual C++ redistributable being installed (no MSVCP140.dll /
 # VCRUNTIME140.dll to bundle — the #1 cause of "missing DLL" errors on a clean
@@ -253,7 +269,8 @@ if (MSVC)
     if (NOT PSR_TRACE_HOOKS)
         target_compile_options(RecompiledFuncs   PRIVATE /Z7)
     endif()
-    target_link_options(PokemonStadiumRecomp PRIVATE /DEBUG /OPT:REF /OPT:NOICF)
+    # /PDBALTPATH: the exe names its PDB without the builder's folder path.
+    target_link_options(PokemonStadiumRecomp PRIVATE /DEBUG /OPT:REF /OPT:NOICF "/PDBALTPATH:%_PDB%")
     if (TARGET librecomp)
         target_compile_options(librecomp PRIVATE /Z7)
     endif()
