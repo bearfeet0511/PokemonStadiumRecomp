@@ -68,6 +68,13 @@
 namespace pkmnstadium {
 // Defined here (where <windows.h> is already included with WIN32_LEAN_AND_MEAN /
 // NOMINMAX) and shared via app_paths.h with the other translation units.
+#if defined(__ANDROID__)
+std::filesystem::path& android_data_dir() {
+    static std::filesystem::path dir;
+    return dir;
+}
+#endif
+
 std::filesystem::path exe_dir() {
 #ifdef _WIN32
     char buf[MAX_PATH] = {0};
@@ -75,7 +82,10 @@ std::filesystem::path exe_dir() {
     return std::filesystem::path(buf).parent_path();
 #elif defined(__ANDROID__)
     // There is no folder next to an APK. Use the app's storage folder, which a
-    // file manager or adb can reach: Android/data/<package>/files.
+    // file manager or adb can reach: Android/data/<package>/files. The launcher
+    // sets it from Java (SDL isn't running there yet, and asking SDL then
+    // crashes); the game asks SDL.
+    if (!android_data_dir().empty()) return android_data_dir();
     const char* storage = SDL_AndroidGetExternalStoragePath();
     return std::filesystem::path(storage != nullptr ? storage : SDL_AndroidGetInternalStoragePath());
 #else

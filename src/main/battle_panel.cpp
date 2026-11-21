@@ -450,6 +450,17 @@ Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativePress(JNIEnv*, jclas
     pkmnstadium::battle_panel::press(static_cast<uint16_t>(buttons));
 }
 
+// Called by the launcher before anything else: the app folder, since SDL (which
+// exe_dir() asks otherwise) isn't running yet.
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeSetDataDir(JNIEnv* env, jclass, jstring path) {
+    const char* utf = env->GetStringUTFChars(path, nullptr);
+    if (utf != nullptr) {
+        pkmnstadium::android_data_dir() = utf;
+        env->ReleaseStringUTFChars(path, utf);
+    }
+}
+
 // Called once from BattlePanel.java: the logo as ARGB ints (100 x 56), or null.
 extern "C" JNIEXPORT jintArray JNICALL
 Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeLogo(JNIEnv* env, jclass) {

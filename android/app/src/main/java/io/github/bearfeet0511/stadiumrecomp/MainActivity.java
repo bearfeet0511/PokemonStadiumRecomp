@@ -61,10 +61,10 @@ public class MainActivity extends SDLActivity {
     private void updateBattlePanel() {
         Display[] displays = displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
         Display target = displays.length > 0 ? displays[0] : null;
-        // Test switch for performance work: a file named no_panel in the app folder
-        // turns the panel off.
+        // Off when the launcher's "Bottom-screen battle panel" setting is off
+        // (launcher.cfg bottom_screen=off), or with a no_panel test file.
         java.io.File dir = getExternalFilesDir(null);
-        if (dir != null && new java.io.File(dir, "no_panel").exists()) target = null;
+        if (dir != null && (new java.io.File(dir, "no_panel").exists() || panelSettingOff(dir))) target = null;
         Log.i(TAG, "presentation displays: " + displays.length + (target != null ? " -> " + target.getDisplayId() + " " + target.getName() : ""));
         if (battlePanel != null && (target == null || battlePanel.getDisplay().getDisplayId() != target.getDisplayId())) {
             closeBattlePanel();
@@ -78,6 +78,17 @@ public class MainActivity extends SDLActivity {
                 battlePanel = null; // display went away, or the window was refused
             }
         }
+    }
+
+    private static boolean panelSettingOff(java.io.File dir) {
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(new java.io.File(dir, "launcher.cfg")))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.trim().equals("bottom_screen=off")) return true;
+            }
+        } catch (java.io.IOException ignored) {
+        }
+        return false;
     }
 
     private void closeBattlePanel() {

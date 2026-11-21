@@ -41,6 +41,9 @@ public class BattlePanel extends Presentation {
 
     static native int[] nativeLogo();
 
+    /** The app folder, for native code used before SDL starts (the launcher). */
+    static native void nativeSetDataDir(String path);
+
     // Pick screen: the button that picks each team slot (fragment64), and L to undo.
     private static final int[] PICK_BITS = { 0x4000, 0x0002, 0x0008, 0x8000, 0x0004, 0x0001 };
     private static final int BUTTON_L = 0x0020;

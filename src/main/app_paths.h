@@ -20,6 +20,11 @@ namespace pkmnstadium {
 // Directory containing the running executable.
 std::filesystem::path exe_dir();
 
+#if defined(__ANDROID__)
+// The app folder when set from Java before SDL starts (the launcher); empty otherwise.
+std::filesystem::path& android_data_dir();
+#endif
+
 // Absolute path for a runtime-written file (config, log, dump), placed next to
 // the executable.
 std::filesystem::path app_file(const std::string& name);
