@@ -132,7 +132,16 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Controls (from the game's screen): moves are C-up / C-right / C-down / C-left for move slots 1-4; L cancels. The button that sends out each Pokemon is still unknown.
 
 ## Android to-do (2026-11-16, end of session)
-- Widescreen moves the Pokemon portraits out of their boxes (player's left, enemy's right), on Android and PC. Same root as the battle fades: RT64's per-draw edge alignment in Expand mode. Fix the two together.
+- Widescreen battles (rt64 patch 0005, 2026-11-21). In Expand, RT64 keeps a rect at 4:3 unless it covers the whole width (or is drawn from a framebuffer copy), and keeps every orthographic draw at 4:3. Fixed, checked on the Thor:
+  - Portraits out of their boxes: they're drawn from a framebuffer copy, which RT64 treated as full-screen. Now only copies at least half the screen wide are.
+  - Zig-zag wipe: 24 px tall bands (on the 24-row grid) that grow from one edge or slide past the other, then a 20x15 grid of 16x16 black rects. Both now go to widescreen coordinates.
+  - White fade into battle: a see-through orthographic quad (<= 2 triangles, full scissor). Its viewport is widened by the aspect ratio so it fills the width.
+  - Rects spanning >= 90% of the width count as full-screen (a fill ends 1 px short: inclusive N64 coordinates).
+  - Not the cause: widescreen switching on too late. The fade out to white happens on the 4:3 team-confirm screen, which stays 4:3 on purpose. Switching on at 'FIGT' didn't help, and many battles never push 'FIGT'.
+- Widescreen, still open:
+  - Trainer name boxes (24 px tall) match the band rule while they slide in, so they start at the wide screen's edge and then jump. Requiring untextured rects for the band rule broke other rects (reverted).
+  - Surf's blue screen tint only covers 4:3 (probably another full-screen draw type; log it).
+  - Debug: `PSR_RT64_RECTLOG=1` (psr_env.txt) logs each distinct rect and triangle draw on the 320-wide screen; `PSR_WIDESCREEN_TRACE=1` writes widescreen.log (fragments loaded, 'FIGT'). Fast frame capture on the Thor: `screencap -d <display id>` to raw files (~90 ms each, PNG ~1 s), then contact sheets on the PC (no ffmpeg installed).
 - Idle bottom screen (done 2026-11-21): black with the Stadium logo at half width, ~35% alpha (user: like Cocoon's single-screen logo). The logo is read from the user's ROM at runtime: kids_club_game_ui (ROM 0x675FA0-0x696350, PERS-SZP = header + Yay0), offset 0x4F120, 100x56 RGBA32 (fragment2.c func_878021B4 draws D_304F120). The title screen art is file 0 of the backgrounds archive (ROM 0x3CB130; files are PRESJPEG = 16-byte header + a plain JPEG), if ever wanted.
 - Panel text: one size throughout, HP and PP on a second line, long names end in "…" (2026-11-21). More tweaks may follow.
 

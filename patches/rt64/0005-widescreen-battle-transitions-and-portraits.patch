@@ -1,0 +1,110 @@
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 3287104..e3168c5 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -5,6 +5,10 @@
+ #include "rt64_framebuffer_renderer.h"
+ 
+ #include <cstdlib>
++#include <cstdio>
++#include <mutex>
++#include <set>
++#include <string>
+ 
+ #include "../include/rt64_extended_gbi.h"
+ 
+@@ -1699,9 +1703,40 @@ namespace RT64 {
+                                 useWideViewport = (viewportOrigin == G_EX_ORIGIN_NONE);
+                             }
+ 
++                            {
++                                // PSR_RT64_RECTLOG=1 also logs each distinct 3D/2D triangle draw on the main screen.
++                                static const bool s_triLog = (std::getenv("PSR_RT64_RECTLOG") != nullptr);
++                                if (s_triLog && (p.fbWidth == 320)) {
++                                    static std::mutex s_triLogMutex;
++                                    static std::set<std::string> s_triSeen;
++                                    char line[256];
++                                    std::snprintf(line, sizeof(line), "[tri] %s scissor %d,%d..%d,%d fbscissor %d..%d tris %u wide %d origin %u alpha %d",
++                                        (proj.type == Projection::Type::Perspective) ? "persp" : "ortho",
++                                        int(call.callDesc.scissorRect.ulx), int(call.callDesc.scissorRect.uly), int(call.callDesc.scissorRect.lrx), int(call.callDesc.scissorRect.lry),
++                                        int(fbPair.scissorRect.ulx), int(fbPair.scissorRect.lrx), unsigned(std::min(call.callDesc.triangleCount, 64U)),
++                                        int(useWideViewport), unsigned(viewportOrigin), int(alphaBlend));
++                                    std::lock_guard<std::mutex> lock(s_triLogMutex);
++                                    if ((s_triSeen.size() < 5000) && s_triSeen.insert(line).second) {
++                                        std::fprintf(stderr, "%s\n", line);
++                                    }
++                                }
++                            }
+                             if (useWideViewport) {
+                                 invRatioScale = 1.0f;
+                                 triangles.viewport = rawViewportWide;
++                                // PSR: 2D (orthographic) draws keep the 4:3 shape in Expand, which is
++                                // right for HUD art but left Stadium's white battle fade (a see-through
++                                // quad over the whole screen) in the middle. A see-through quad of at
++                                // most 2 triangles drawn with the full-screen scissor on the main
++                                // screen is widened back by the aspect ratio, so it fills the width.
++                                const bool fullScissorCall = (call.callDesc.scissorRect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.scissorRect.lrx >= fbPair.scissorRect.lrx);
++                                const bool screenFadeQuad = (proj.type == Projection::Type::Orthographic) && alphaBlend && fullScissorCall &&
++                                    (call.callDesc.triangleCount <= 2) && (p.fbWidth == 320) && (aspectRatioScale > 1.0f);
++                                if (screenFadeQuad) {
++                                    const float wideWidth = triangles.viewport.width * aspectRatioScale;
++                                    triangles.viewport.x -= (wideWidth - triangles.viewport.width) / 2.0f;
++                                    triangles.viewport.width = wideWidth;
++                                }
+                             }
+                             else {
+                                 triangles.viewport = rawViewportOriginal;
+@@ -1723,7 +1758,52 @@ namespace RT64 {
+                             // The call's scissor spans the whole width of the framebuffer pair scissor. The rect must not be using extended origins.
+                             const bool regularOrigins = (call.callDesc.rectLeftOrigin == G_EX_ORIGIN_NONE) && (call.callDesc.rectRightOrigin == G_EX_ORIGIN_NONE);
+                             const bool coversScissorWidth = regularOrigins && (fixedRect.ulx <= fbPair.scissorRect.ulx) && (fixedRect.lrx >= fbPair.scissorRect.lrx);
+-                            if (tileCopiesUsed || coversScissorWidth) {
++                            // PSR: a rect textured from a framebuffer copy is usually a full-screen
++                            // effect, so RT64 places it in widescreen coordinates. Stadium also draws
++                            // small ones (the battle portraits, rendered off-screen), which then moved
++                            // out of their boxes towards the screen edges. Only wide ones count.
++                            const bool wideTileCopy = tileCopiesUsed &&
++                                ((fixedRect.lrx - fixedRect.ulx) * 2 >= (fbPair.scissorRect.lrx - fbPair.scissorRect.ulx));
++                            // PSR: Stadium's battle transitions are rects that only RT64's "covers the
++                            // whole width" test would stretch, so in Expand they stayed in the 4:3
++                            // middle with the sides exposed: the zig-zag wipe's 24 px bands grow from
++                            // one edge or slide in past the other, and the white intro fade is a fill
++                            // that ends 1 px short of the right edge (inclusive N64 coordinates).
++                            // On a full-width screen, the wipe's bands (24 px tall, on the 24-row grid,
++                            // reaching either edge) and rects spanning at least 90% of the width are
++                            // placed in widescreen coordinates. The HP/info boxes also slide in from
++                            // the edges (40 px tall) and must keep RT64's placement.
++                            const bool fullWidthScreen = (fbPair.scissorRect.ulx == 0) && (fbPair.scissorRect.lrx == int32_t(p.fbWidth) * 4);
++                            const bool reachesEdge = (fixedRect.ulx <= fbPair.scissorRect.ulx) || (fixedRect.lrx >= fbPair.scissorRect.lrx - 4);
++                            // Known issue: the trainer name boxes (24 px tall) also match while they
++                            // slide in from the edges, so they start at the wide screen's edge and
++                            // then jump. (Requiring untextured rects broke other rects: reverted.)
++                            const bool wipeBand = ((fixedRect.lry - fixedRect.uly) == 96) && ((fixedRect.uly % 96) == 0);
++                            const bool nearlyFullWidth = (fixedRect.lrx - fixedRect.ulx) * 10 >= (fbPair.scissorRect.lrx - fbPair.scissorRect.ulx) * 9;
++                            const bool screenEdgeRect = regularOrigins && fullWidthScreen && ((reachesEdge && wipeBand) || nearlyFullWidth);
++                            // The wipe's final black screen is a 20x15 grid of 16x16 rects; the inner
++                            // ones reach no edge, so grid-aligned 16x16 rects count as well.
++                            const bool screenGridTile = regularOrigins && fullWidthScreen &&
++                                ((fixedRect.lrx - fixedRect.ulx) == 64) && ((fixedRect.lry - fixedRect.uly) == 64) &&
++                                ((fixedRect.ulx % 64) == 0) && ((fixedRect.uly % 64) == 0);
++                            {
++                                // PSR_RT64_RECTLOG=1: log each distinct rect (widescreen debugging).
++                                static const bool s_rectLog = (std::getenv("PSR_RT64_RECTLOG") != nullptr);
++                                if (s_rectLog) {
++                                    static std::mutex s_rectLogMutex;
++                                    static std::set<std::string> s_rectSeen;
++                                    char line[256];
++                                    std::snprintf(line, sizeof(line), "[rect] ul %d,%d lr %d,%d scissor %d..%d tilecopy %d covers %d cycle %d fb %ux%u tiles %u",
++                                        int(fixedRect.ulx), int(fixedRect.uly), int(fixedRect.lrx), int(fixedRect.lry),
++                                        int(fbPair.scissorRect.ulx), int(fbPair.scissorRect.lrx), int(tileCopiesUsed), int(coversScissorWidth),
++                                        int(call.shaderDesc.otherMode.cycleType()), p.fbWidth, p.fbHeight, unsigned(call.callDesc.tileCount));
++                                    std::lock_guard<std::mutex> lock(s_rectLogMutex);
++                                    if ((p.fbWidth == 320) && (s_rectSeen.size() < 5000) && s_rectSeen.insert(line).second) {
++                                        std::fprintf(stderr, "%s\n", line);
++                                    }
++                                }
++                            }
++                            if (wideTileCopy || coversScissorWidth || screenEdgeRect || screenGridTile) {
+                                 invRatioScale = 1.0f;
+                             }
+                             else {
