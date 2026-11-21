@@ -8,6 +8,8 @@ A community fork of [SS Anne / PokemonStadiumRecomp](https://github.com/mstan/Po
 
 No ROMs or game assets are included. Bring your own Pokémon Stadium (US v1.0) ROM and, for the Transfer Pak, your own Game Boy ROMs and saves.
 
+![A widescreen battle on the AYN Thor's top screen, with the battle panel on the bottom screen: the team with HP, and the active Pokémon's moves with PP and C-buttons](docs/screenshots/thor-battle.jpg)
+
 ## Features
 
 - **Native, not emulated.** The game's code is recompiled to native code (N64Recomp) and drawn with RT64 on Direct3D 12 or Vulkan.
