@@ -13,11 +13,19 @@ namespace pkmnstadium::battle_panel {
 //                                   battle, in pick order:
 //   "mon\t<name>\t<level>\t<hp>\t<max hp>\t<status>\t<active 0/1>\t<fainted 0/1>"
 //   "\t<move>\t<pp>" x4             (empty move name for an empty slot)
+//   "\t<slot>\t<send-out button>"   team slot and its CONT_* mask (0 if unknown)
+//   "pick\t1"                       the pre-battle pick screen instead, followed by
+//   "slot\t<slot>\t<name>\t<level>" one per team slot
 std::string snapshot();
 
-// A tap on the panel holds an N64 button (CONT_* mask) briefly; the input code
-// ORs tapped_buttons() into Player 1's buttons.
+// Holds buttons briefly with no menu checks (the pick screen's buttons).
+void hold(uint16_t buttons);
+
+// Taps on the panel: press() uses a move (its C-button mask), send_out() switches
+// to a team slot. Each opens the right battle submenu first when needed; the
+// input code ORs tapped_buttons() into Player 1's buttons.
 void press(uint16_t buttons);
+void send_out(int slot);
 uint16_t tapped_buttons();
 
 } // namespace pkmnstadium::battle_panel

@@ -35,6 +35,46 @@ public class BattlePanel extends Presentation {
 
     static native void nativePress(int buttons);
 
+    static native void nativeSwitch(int slot);
+
+    static native void nativeHold(int buttons);
+
+    // Pick screen: the button that picks each team slot (fragment64), and L to undo.
+    private static final int[] PICK_BITS = { 0x4000, 0x0002, 0x0008, 0x8000, 0x0004, 0x0001 };
+    private static final int BUTTON_L = 0x0020;
+
+    // A team card needs a second tap within this long to send the Pokemon out.
+    private static final long CONFIRM_MS = 3000;
+
+    /** Button icon colours as on the N64 controller: A blue, B green, C yellow, L/R grey. */
+    static int chipColor(String label) {
+        switch (label) {
+            case "A": return Color.rgb(50, 110, 230);
+            case "B": return Color.rgb(40, 170, 80);
+            case "L":
+            case "R": return Color.rgb(160, 165, 180);
+            default: return Color.rgb(250, 204, 40);
+        }
+    }
+
+    /** Label colour that reads on chipColor(label). */
+    static int chipTextColor(String label) {
+        return label.equals("A") || label.equals("B") ? Color.WHITE : Color.rgb(30, 30, 30);
+    }
+
+    /** Label for a send-out button mask from the native side. */
+    static String buttonLabel(int bits) {
+        switch (bits) {
+            case 0x0008: return "C▲";
+            case 0x0001: return "C▶";
+            case 0x0004: return "C▼";
+            case 0x0002: return "C◀";
+            case 0x8000: return "A";
+            case 0x4000: return "B";
+            default: return "";
+        }
+    }
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PanelView view;
 
@@ -85,6 +125,12 @@ public class BattlePanel extends Presentation {
         boolean active, fainted;
         final String[] moves = new String[4];
         final String[] pp = new String[4];
+        int slot = -1;      // team slot in pick order
+        int switchBits;     // the button that sends it out, 0 if unknown
+
+        boolean canSendOut() {
+            return !active && !fainted && slot >= 0 && switchBits != 0;
+        }
     }
 
     static final class PanelView extends View {
@@ -98,6 +144,20 @@ public class BattlePanel extends Presentation {
         private final RectF[] moveRects = { new RectF(), new RectF(), new RectF(), new RectF() };
         private final boolean[] moveTappable = new boolean[4];
         private int flashMove = -1;
+        // Where each team card was drawn, and the slot waiting for a confirming tap.
+        private final List<RectF> cardRects = new ArrayList<>();
+        private final List<Mon> cardMons = new ArrayList<>();
+        private int armedSlot = -1;
+        // Pick screen: { slot, name, level } per team slot, where each tile was drawn.
+        private boolean pickScreen;
+        private final List<String[]> picks = new ArrayList<>();
+        private final List<RectF> pickRects = new ArrayList<>();
+        private final List<Integer> pickBits = new ArrayList<>();
+        private int flashPick = -1;
+        private final Runnable disarm = () -> {
+            armedSlot = -1;
+            invalidate();
+        };
 
         PanelView(Context context) {
             super(context);
@@ -107,6 +167,48 @@ public class BattlePanel extends Presentation {
         @Override
         public boolean onTouchEvent(android.view.MotionEvent event) {
             if (event.getActionMasked() != android.view.MotionEvent.ACTION_DOWN) {
+                return true;
+            }
+            if (pickScreen) {
+                for (int i = 0; i < pickRects.size(); i++) {
+                    if (!pickRects.get(i).contains(event.getX(), event.getY())) continue;
+                    try {
+                        nativeHold(pickBits.get(i));
+                    } catch (UnsatisfiedLinkError e) {
+                        return true;
+                    }
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                    final int tapped = i;
+                    flashPick = tapped;
+                    invalidate();
+                    postDelayed(() -> {
+                        if (flashPick == tapped) flashPick = -1;
+                        invalidate();
+                    }, 150);
+                    return true;
+                }
+                return true;
+            }
+            // Team cards: the first tap arms the card, a second tap sends it out.
+            for (int i = 0; i < cardRects.size(); i++) {
+                Mon m = cardMons.get(i);
+                if (!cardRects.get(i).contains(event.getX(), event.getY())) continue;
+                if (!m.canSendOut()) return true;
+                removeCallbacks(disarm);
+                if (armedSlot == m.slot) {
+                    armedSlot = -1;
+                    try {
+                        nativeSwitch(m.slot);
+                    } catch (UnsatisfiedLinkError e) {
+                        return true;
+                    }
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                } else {
+                    armedSlot = m.slot;
+                    performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+                    postDelayed(disarm, CONFIRM_MS);
+                }
+                invalidate();
                 return true;
             }
             for (int i = 0; i < 4; i++) {
@@ -136,10 +238,16 @@ public class BattlePanel extends Presentation {
             if (snapshot.equals(last)) return;
             last = snapshot;
             mons.clear();
+            picks.clear();
             inBattle = false;
+            pickScreen = false;
             for (String line : snapshot.split("\n")) {
                 String[] f = line.split("\t", -1);
-                if (f[0].equals("battle")) {
+                if (f[0].equals("pick")) {
+                    pickScreen = f.length > 1 && f[1].equals("1");
+                } else if (f[0].equals("slot") && f.length >= 4) {
+                    picks.add(new String[] { f[1], f[2], f[3] });
+                } else if (f[0].equals("battle")) {
                     inBattle = f.length > 1 && f[1].equals("1");
                 } else if (f[0].equals("mon") && f.length >= 16) {
                     Mon m = new Mon();
@@ -153,6 +261,10 @@ public class BattlePanel extends Presentation {
                     for (int i = 0; i < 4; i++) {
                         m.moves[i] = f[8 + i * 2];
                         m.pp[i] = f[9 + i * 2];
+                    }
+                    if (f.length >= 18) {
+                        m.slot = parse(f[16]);
+                        m.switchBits = parse(f[17]);
                     }
                     mons.add(m);
                 }
@@ -172,6 +284,15 @@ public class BattlePanel extends Presentation {
         protected void onDraw(Canvas canvas) {
             final float w = getWidth(), h = getHeight();
             canvas.drawColor(Color.rgb(16, 22, 38));
+            pickRects.clear();
+            pickBits.clear();
+            if (pickScreen) {
+                for (int i = 0; i < 4; i++) moveTappable[i] = false;
+                cardRects.clear();
+                cardMons.clear();
+                drawPickScreen(canvas, w, h);
+                return;
+            }
             if (!inBattle || mons.isEmpty()) {
                 for (int i = 0; i < 4; i++) moveTappable[i] = false;
                 return;
@@ -186,10 +307,15 @@ public class BattlePanel extends Presentation {
 
             // Left: the team.
             Mon active = null;
+            cardRects.clear();
+            cardMons.clear();
             for (int i = 0; i < mons.size(); i++) {
                 Mon m = mons.get(i);
                 if (m.active) active = m;
-                drawMon(canvas, m, pad, pad + i * ((h - pad * (mons.size() + 1)) / mons.size() + pad), split - pad / 2, cardH);
+                float top = pad + i * ((h - pad * (mons.size() + 1)) / mons.size() + pad);
+                drawMon(canvas, m, pad, top, split - pad / 2, cardH);
+                cardRects.add(new RectF(pad, top, split - pad / 2, top + cardH));
+                cardMons.add(m);
             }
 
             // Right: the active Pokemon's moves.
@@ -224,12 +350,34 @@ public class BattlePanel extends Presentation {
                 c.drawRoundRect(rect, round, round, fill);
                 fill.setStyle(Paint.Style.FILL);
             }
+            final boolean armed = m.slot == armedSlot && m.canSendOut();
+            if (armed) {
+                fill.setStyle(Paint.Style.STROKE);
+                fill.setStrokeWidth(Math.max(3f, height * 0.035f));
+                fill.setColor(Color.rgb(120, 220, 255));
+                c.drawRoundRect(rect, round, round, fill);
+                fill.setStyle(Paint.Style.FILL);
+            }
             final int alpha = m.fainted ? 110 : 255;
             final float inset = font * 0.6f;
-            final float x = left + inset;
-            final float width = right - left - inset * 2;
             final float line1 = top + height * 0.42f;   // baselines of the two lines
             final float line2 = top + height * 0.82f;
+
+            // Send-out button chip on the left (space kept on every card so names line up).
+            final float chipH = font * 1.5f;
+            final float chipW = chipH * 1.25f;
+            rect.set(left + inset, top + (height - chipH) / 2, left + inset + chipW, top + (height + chipH) / 2);
+            if (m.canSendOut() && !armed) { // armed: the centred prompt needs the room
+                final String label = buttonLabel(m.switchBits);
+                fill.setColor(chipColor(label));
+                c.drawRoundRect(rect, chipH / 2, chipH / 2, fill);
+                text.setColor(chipTextColor(label));
+                text.setTextAlign(Paint.Align.CENTER);
+                c.drawText(label, rect.centerX(), rect.centerY() + font * 0.35f, text);
+                text.setTextAlign(Paint.Align.LEFT);
+            }
+            final float x = rect.right + inset;
+            final float width = right - inset - x;
 
             // Line 1: name, and level or status on the right.
             String tag = m.fainted ? "FNT" : m.status.isEmpty() ? "Lv " + m.level : m.status;
@@ -242,6 +390,15 @@ public class BattlePanel extends Presentation {
             text.setColor(Color.WHITE);
             text.setAlpha(alpha);
             c.drawText(ellipsize(m.name, width - tagWidth - inset), x, line1, text);
+
+            if (armed) {
+                // Centred on the whole card so it reads in full.
+                text.setColor(Color.rgb(120, 220, 255));
+                text.setTextAlign(Paint.Align.CENTER);
+                c.drawText(ellipsize("Tap again to switch", right - left - inset * 2), (left + right) / 2, line2, text);
+                text.setTextAlign(Paint.Align.LEFT);
+                return;
+            }
 
             // Line 2: HP numbers on the right, the bar in the space before them.
             String hpText = m.hp + "/" + m.maxHp;
@@ -296,6 +453,67 @@ public class BattlePanel extends Presentation {
             text.setColor("0".equals(pp) ? Color.rgb(230, 80, 70) : Color.rgb(170, 180, 205));
             c.drawText("PP " + pp, nameLeft, top + height * 0.82f, text);
             return true;
+        }
+
+        /** Pick screen: a tile per team slot (3 x 2, slot order) and an L "Undo" bar. */
+        private void drawPickScreen(Canvas c, float w, float h) {
+            final float pad = Math.min(w, h) * 0.025f;
+            final float undoH = h * 0.15f;
+            final float tileW = (w - pad * 4) / 3;
+            final float tileH = (h - undoH - pad * 4) / 2;
+            font = Math.min(h * 0.045f, tileW * 0.11f);
+            text.setTextSize(font);
+            for (String[] p : picks) {
+                int slot = parse(p[0]);
+                if (slot < 0 || slot >= PICK_BITS.length) continue;
+                float left = pad + (slot % 3) * (tileW + pad);
+                float top = pad + (slot / 3) * (tileH + pad);
+                RectF tile = new RectF(left, top, left + tileW, top + tileH);
+                drawPickTile(c, tile, buttonLabel(PICK_BITS[slot]), p[1], "Lv " + p[2], pickRects.size() == flashPick);
+                pickRects.add(tile);
+                pickBits.add(PICK_BITS[slot]);
+            }
+            float top = h - pad - undoH;
+            RectF undo = new RectF(pad, top, w - pad, top + undoH);
+            drawPickTile(c, undo, "L", "Undo last pick", null, pickRects.size() == flashPick);
+            pickRects.add(undo);
+            pickBits.add(BUTTON_L);
+        }
+
+        private void drawPickTile(Canvas c, RectF tile, String button, String line1, String line2, boolean flash) {
+            final float round = Math.min(tile.width(), tile.height()) * 0.1f;
+            fill.setStyle(Paint.Style.FILL);
+            fill.setColor(flash ? Color.rgb(80, 110, 170) : Color.rgb(30, 38, 58));
+            c.drawRoundRect(tile, round, round, fill);
+            final float chipH = font * 1.6f;
+            final float chipW = chipH * 1.4f;
+            final float cx = tile.centerX();
+            text.setTextAlign(Paint.Align.CENTER);
+            if (line2 == null) {
+                // One-line bar: chip on the left of the text.
+                float textW = text.measureText(line1);
+                float startX = cx - (chipW + font * 0.6f + textW) / 2;
+                rect.set(startX, tile.centerY() - chipH / 2, startX + chipW, tile.centerY() + chipH / 2);
+                fill.setColor(chipColor(button));
+                c.drawRoundRect(rect, chipH / 2, chipH / 2, fill);
+                text.setColor(chipTextColor(button));
+                c.drawText(button, rect.centerX(), rect.centerY() + font * 0.35f, text);
+                text.setTextAlign(Paint.Align.LEFT);
+                text.setColor(Color.WHITE);
+                c.drawText(line1, rect.right + font * 0.6f, tile.centerY() + font * 0.35f, text);
+                return;
+            }
+            float chipTop = tile.top + tile.height() * 0.2f;
+            rect.set(cx - chipW / 2, chipTop, cx + chipW / 2, chipTop + chipH);
+            fill.setColor(chipColor(button));
+            c.drawRoundRect(rect, chipH / 2, chipH / 2, fill);
+            text.setColor(chipTextColor(button));
+            c.drawText(button, cx, rect.centerY() + font * 0.35f, text);
+            text.setColor(Color.WHITE);
+            c.drawText(ellipsize(line1, tile.width() - font), cx, tile.top + tile.height() * 0.66f, text);
+            text.setColor(Color.rgb(170, 180, 205));
+            c.drawText(line2, cx, tile.top + tile.height() * 0.84f, text);
+            text.setTextAlign(Paint.Align.LEFT);
         }
 
         /** Cuts text to fit width at the current size, ending with an ellipsis. */

@@ -127,6 +127,8 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Move names: NUL-separated ASCII list in move-ID order in the ROM (US v1.0 at `0x795A98`, starting "POUND"). Read them from the user's ROM at runtime; don't copy game text into the repo.
 - Picks: the records are in pick order, and `0x800AE546` holds how many are in the battle (3 or 6).
 - Battle menu (from pret's decomp, `fragment62_2F74E0.c`; works, 2026-11-21): `D_84390010[2]` at fragment62 base + `0x90010` points to each side's battle state. Its menu block at `+0x654` has mode `+0x04` (0 top menu, 1 Fight, 2 Pokemon, 3 Run), step `+0x10` (0 waiting at the top menu, 1 in a submenu, 3 chosen) and the side's controller `+0xC8` (`gControllers` = `0x800A7320`, Player 1 first). C-buttons pick a move only at mode 1 / step 1. Tapping a move presses A at the top menu, waits for that state, then presses the C-button. (The earlier guess, a pointer at base + `0x90068`, flips between the two sides' states.) The battle engine is decompiled, so read pret's C before diffing RAM.
+- Switching (same file, func_8430E8E8 / func_8430E72C): B at the top menu gives mode 2 / step 2 (a forced switch after a faint goes straight there). Slot buttons in pick order: with <4 in battle C-up/C-right/C-down; with more C-up, C-left, B, C-right, C-down, A. Count: side state `+0x720` -> `unk_08[0]` `+0x002`. The panel's team cards send out on a second tap ("Tap again to switch").
+- Pre-battle pick screen: fragment64 (fragment id 0x38), the only fragment loaded there. Buttons (fragment64.c func_848027F0): B, C-left, C-up, A, C-down, C-right pick slots 1-6; L undoes; R checks. The team records at `0x800AE561` are in slot order on this screen. The panel shows a tile per slot plus L Undo. Button icons use the N64 colours (A blue, B green, C yellow).
 - Controls (from the game's screen): moves are C-up / C-right / C-down / C-left for move slots 1-4; L cancels. The button that sends out each Pokemon is still unknown.
 
 ## Android to-do (2026-11-16, end of session)
@@ -135,7 +137,6 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Bottom screen when not in battle: show Stadium's own logo, drawn from the user's ROM at runtime.
 - Panel text: one size throughout, HP and PP on a second line, long names end in "…" (2026-11-21). More tweaks may follow.
 - Frame rate in battle is uneven on the Thor (sound is fine, 2026-11-21).
-- Team cards: add the button that sends out each Pokemon, once known.
 - The Windows build hasn't been rebuilt from `build/android`; check it still builds and runs before merging.
 - Earlier open items: GB Tower load time and off-centre picture, music quieter than PC, Transfer Pak saves back to PokeDaisy, a touch launcher/ROM picker.
 

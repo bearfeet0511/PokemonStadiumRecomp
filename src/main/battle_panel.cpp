@@ -27,6 +27,7 @@ namespace {
 
 constexpr uint32_t kFragments = 0x800A58F0;  // gFragments: { vaddr, size } per id
 constexpr uint32_t kBattleFrag = 0x43 - 0x10; // fragment62, the battle engine
+constexpr uint32_t kPickFrag = 0x48 - 0x10;   // fragment64, the pre-battle pick screen
 constexpr uint32_t kTeamCount = 0x800AE546;   // how many records take part (3 or 6)
 constexpr uint32_t kTeam = 0x800AE561;        // player's records, in pick order
 constexpr uint32_t kRecordSize = 0x54;
@@ -104,18 +105,30 @@ std::string clean(std::string text) {
 // and the side's controller at +0xC8. A at the top menu sets mode 1; the next
 // frame sets step 1, and only then do the C-buttons pick a move. Checked against
 // RDRAM dumps at both menus (Thor, 2026-11-21).
+//
+// Switching works the same way (func_8430E8E8 / func_8430E72C): B at the top
+// menu sets mode 2, the next frame sets step 2 (a forced switch after a faint
+// goes straight there), and then a button picks a team slot in pick order:
+// with fewer than 4 in battle C-up/C-right/C-down; with more, C-up, C-left, B,
+// C-right, C-down, A. The count is the side's team (+0x720 -> unk_08[0]) +0x002.
 constexpr uint32_t kSideStates = 0x90010;     // fragment offset of D_84390010[2]
 constexpr uint32_t kMenuBlock = 0x654;
 constexpr uint32_t kControllers = 0x800A7320; // gControllers; Player 1 is the first
 constexpr uint16_t kButtonA = 0x8000;
+constexpr uint16_t kButtonB = 0x4000;
+constexpr uint16_t kSwitch3[3] = { 0x0008, 0x0001, 0x0004 };
+constexpr uint16_t kSwitch6[6] = { 0x0008, 0x0002, 0x4000, 0x0001, 0x0004, 0x8000 };
 constexpr int64_t kHoldMs = 100;      // long enough for a couple of controller polls
 constexpr int64_t kGiveUpMs = 1500;   // the move list never came up
 
-enum class TapPhase { Idle, Start, PressA, WaitMoves, PressMove };
+enum class TapPhase { Idle, Start, Open, WaitMenu, Pick };
+enum class Menu { Unknown, First, Moves, Switch };
 
 static std::mutex s_tap_mutex;
 static TapPhase s_phase = TapPhase::Idle;
-static uint16_t s_move_button = 0;
+static Menu s_target = Menu::Moves;   // the submenu the tap's button belongs to
+static uint16_t s_pick_button = 0;    // a move button, or 0 for a switch (resolved later)
+static int s_switch_slot = -1;
 static int64_t s_phase_start = 0;
 static int64_t s_tap_start = 0;
 
@@ -124,77 +137,119 @@ static int64_t now_ms() {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-enum class Menu { Unknown, First, Moves };
-
-static Menu battle_menu(const uint8_t* rdram) {
-    if (rdram == nullptr) return Menu::Unknown;
+// Player 1's menu block in the battle engine, or 0.
+static uint32_t player_menu(const uint8_t* rdram) {
+    if (rdram == nullptr) return 0;
     const uint32_t frag = read32(rdram, kFragments + kBattleFrag * 8);
-    if (frag == 0 || !in_rdram(frag + kSideStates, 8)) return Menu::Unknown;
+    if (frag == 0 || !in_rdram(frag + kSideStates, 8)) return 0;
     for (uint32_t side = 0; side < 2; ++side) {
         const uint32_t state = read32(rdram, frag + kSideStates + side * 4);
-        if (!in_rdram(state, kMenuBlock + 0xCC)) continue;
-        const uint32_t menu = state + kMenuBlock;
-        if (read32(rdram, menu + 0xC8) != kControllers) continue; // not Player 1's side
-        const uint32_t mode = read32(rdram, menu + 0x04);
-        const uint32_t step = read32(rdram, menu + 0x10);
-        if (mode == 0 && step == 0) return Menu::First;
-        if (mode == 1 && step == 1) return Menu::Moves;
-        return Menu::Unknown;
+        if (!in_rdram(state, 0x724)) continue;
+        if (read32(rdram, state + kMenuBlock + 0xC8) == kControllers) return state + kMenuBlock;
     }
+    return 0;
+}
+
+static Menu battle_menu(const uint8_t* rdram) {
+    const uint32_t menu = player_menu(rdram);
+    if (menu == 0) return Menu::Unknown;
+    const uint32_t mode = read32(rdram, menu + 0x04);
+    const uint32_t step = read32(rdram, menu + 0x10);
+    if (mode == 0 && step == 0) return Menu::First;
+    if (mode == 1 && step == 1) return Menu::Moves;
+    if (mode == 2 && step == 2) return Menu::Switch;
     return Menu::Unknown;
 }
 
+// The button that sends out team slot `slot`, or 0.
+static uint16_t switch_button(const uint8_t* rdram, int slot) {
+    const uint32_t menu = player_menu(rdram);
+    if (menu == 0 || slot < 0) return 0;
+    const uint32_t side = read32(rdram, menu - kMenuBlock + 0x720);
+    if (!in_rdram(side, 0x10)) return 0;
+    const uint32_t team = read32(rdram, side + 0x08);
+    if (!in_rdram(team, 4)) return 0;
+    const int count = read8(rdram, team + 0x02);
+    if (slot >= count) return 0;
+    return count < 4 ? (slot < 3 ? kSwitch3[slot] : 0) : (slot < 6 ? kSwitch6[slot] : 0);
+}
+
 static const char* menu_name(Menu menu) {
-    return menu == Menu::Moves ? "moves" : menu == Menu::First ? "first" : "unknown";
+    switch (menu) {
+        case Menu::First: return "first";
+        case Menu::Moves: return "moves";
+        case Menu::Switch: return "switch";
+        default: return "unknown";
+    }
 }
 
 void press(uint16_t buttons) {
     std::lock_guard lock(s_tap_mutex);
-    s_move_button = buttons;
+    s_target = Menu::Moves;
+    s_pick_button = buttons;
+    s_switch_slot = -1;
     s_phase = TapPhase::Start;
     s_tap_start = s_phase_start = now_ms();
 }
 
-// Called on every controller poll for Player 1, on the game thread. Walks the
-// tap through: (first menu) press A, wait for the move list, press the move.
+void send_out(int slot) {
+    std::lock_guard lock(s_tap_mutex);
+    s_target = Menu::Switch;
+    s_pick_button = 0;
+    s_switch_slot = slot;
+    s_phase = TapPhase::Start;
+    s_tap_start = s_phase_start = now_ms();
+}
+
+// Called on every controller poll for Player 1, on the game thread. Walks a tap
+// through: (at the top menu) press A or B, wait for the submenu, press the pick.
 uint16_t tapped_buttons() {
     std::lock_guard lock(s_tap_mutex);
     if (s_phase == TapPhase::Idle) return 0;
     const int64_t now = now_ms();
-    const Menu menu = battle_menu(recomp_runtime_get_rdram());
+    const uint8_t* rdram = recomp_runtime_get_rdram();
+    const Menu menu = battle_menu(rdram);
+    const uint16_t opener = s_target == Menu::Switch ? kButtonB : kButtonA;
 
     if (s_phase == TapPhase::Start) {
-        std::fprintf(stderr, "[battle-panel] tap %#06x at menu %s\n", s_move_button, menu_name(menu));
-        if (menu == Menu::Moves) {
-            s_phase = TapPhase::PressMove;
+        std::fprintf(stderr, "[battle-panel] tap %s %#06x slot %d at menu %s\n", menu_name(s_target),
+                     s_pick_button, s_switch_slot, menu_name(menu));
+        if (menu == s_target) {
+            s_phase = TapPhase::Pick;
         } else if (menu == Menu::First) {
-            s_phase = TapPhase::PressA;
+            s_phase = TapPhase::Open;
         } else {
-            s_phase = TapPhase::Idle; // not a menu we know: press nothing
+            s_phase = TapPhase::Idle; // not a menu this tap belongs to: press nothing
             return 0;
         }
         s_phase_start = now;
+        if (s_phase == TapPhase::Pick && s_target == Menu::Switch) {
+            s_pick_button = switch_button(rdram, s_switch_slot);
+            if (s_pick_button == 0) s_phase = TapPhase::Idle;
+        }
     }
 
     switch (s_phase) {
-        case TapPhase::PressA:
-            if (now - s_phase_start < kHoldMs) return kButtonA;
-            s_phase = TapPhase::WaitMoves;
+        case TapPhase::Open:
+            if (now - s_phase_start < kHoldMs) return opener;
+            s_phase = TapPhase::WaitMenu;
             s_phase_start = now;
             return 0;
-        case TapPhase::WaitMoves:
-            if (menu == Menu::Moves) {
-                s_phase = TapPhase::PressMove;
+        case TapPhase::WaitMenu:
+            if (menu == s_target) {
+                if (s_target == Menu::Switch) s_pick_button = switch_button(rdram, s_switch_slot);
+                s_phase = s_pick_button != 0 ? TapPhase::Pick : TapPhase::Idle;
                 s_phase_start = now;
-                return s_move_button;
+                return s_pick_button;
             }
             if (now - s_tap_start > kGiveUpMs) {
-                std::fprintf(stderr, "[battle-panel] move list didn't open (menu %s)\n", menu_name(menu));
+                std::fprintf(stderr, "[battle-panel] %s menu didn't open (menu %s)\n", menu_name(s_target),
+                             menu_name(menu));
                 s_phase = TapPhase::Idle;
             }
             return 0;
-        case TapPhase::PressMove:
-            if (now - s_phase_start < kHoldMs) return s_move_button;
+        case TapPhase::Pick:
+            if (now - s_phase_start < kHoldMs) return s_pick_button;
             s_phase = TapPhase::Idle;
             return 0;
         default:
@@ -215,11 +270,44 @@ static void dump_rdram_if_requested(const uint8_t* rdram) {
     std::ofstream(exe_dir() / "rdram_dump.bin", std::ios::binary).write(data.data(), data.size());
 }
 
+static std::string record_name(const uint8_t* rdram, uint32_t rec) {
+    std::string name;
+    for (uint32_t c = 0; c < 11; ++c) {
+        const char ch = static_cast<char>(read8(rdram, rec + 0x2F + c));
+        if (ch == '\0') break;
+        name += ch;
+    }
+    return clean(name);
+}
+
+void hold(uint16_t buttons) {
+    std::lock_guard lock(s_tap_mutex);
+    s_target = Menu::Unknown;
+    s_pick_button = buttons;
+    s_switch_slot = -1;
+    s_phase = TapPhase::Pick;
+    s_tap_start = s_phase_start = now_ms();
+}
+
 std::string snapshot() {
     const uint8_t* rdram = recomp_runtime_get_rdram();
     dump_rdram_if_requested(rdram);
-    if (rdram == nullptr || read32(rdram, kFragments + kBattleFrag * 8) == 0) {
-        return "battle\t0\n";
+    if (rdram == nullptr) return "battle\t0\n";
+    if (read32(rdram, kFragments + kBattleFrag * 8) == 0) {
+        // The pre-battle pick screen (fragment64, fragment id 0x38): the team's
+        // records are in slot order, which the buttons pick (fragment64.c,
+        // func_848027F0): B, C-left, C-up, A, C-down, C-right; L undoes a pick.
+        if (read32(rdram, kFragments + kPickFrag * 8) == 0) return "battle\t0\n";
+        std::string out = "pick\t1\n";
+        uint32_t count = read8(rdram, kTeamCount);
+        if (count < 1 || count > 6) count = 6;
+        for (uint32_t i = 0; i < count; ++i) {
+            const uint32_t rec = kTeam + i * kRecordSize;
+            if (read8(rdram, rec + 8) == 0) continue; // empty slot
+            out += "slot\t" + std::to_string(i) + "\t" + record_name(rdram, rec) + "\t" +
+                   std::to_string(read8(rdram, rec + 0x23)) + "\n";
+        }
+        return out;
     }
     const auto& names = move_names();
 
@@ -244,15 +332,8 @@ std::string snapshot() {
             is_active = read8(rdram, active + 0x1F + m) == moves[m];
         }
 
-        std::string name;
-        for (uint32_t c = 0; c < 11; ++c) {
-            const char ch = static_cast<char>(read8(rdram, rec + 0x2F + c));
-            if (ch == '\0') break;
-            name += ch;
-        }
-
         const uint16_t hp = is_active ? read16(rdram, active + 0x0C) : read16(rdram, rec + 1);
-        out += "mon\t" + clean(name) + "\t" + std::to_string(level) + "\t" + std::to_string(hp) + "\t" +
+        out += "mon\t" + record_name(rdram, rec) + "\t" + std::to_string(level) + "\t" + std::to_string(hp) + "\t" +
                std::to_string(read16(rdram, rec + 0x25)) + "\t" + status_text(read8(rdram, rec + 4)) + "\t" +
                (is_active ? "1" : "0") + "\t" + (read8(rdram, rec + 0x24) != 0 || hp == 0 ? "1" : "0");
         for (int m = 0; m < 4; ++m) {
@@ -260,6 +341,8 @@ std::string snapshot() {
             const std::string move = moves[m] != 0 && moves[m] < names.size() ? names[moves[m]] : "";
             out += "\t" + clean(move) + "\t" + (move.empty() ? "" : std::to_string(pp));
         }
+        // Team slot (pick order) and the button that sends it out.
+        out += "\t" + std::to_string(i) + "\t" + std::to_string(switch_button(rdram, static_cast<int>(i)));
         out += "\n";
     }
     return out;
@@ -280,5 +363,17 @@ Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeSnapshot(JNIEnv* env
 extern "C" JNIEXPORT void JNICALL
 Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativePress(JNIEnv*, jclass, jint buttons) {
     pkmnstadium::battle_panel::press(static_cast<uint16_t>(buttons));
+}
+
+// Called from BattlePanel.java for a plain button (the pick screen's buttons).
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeHold(JNIEnv*, jclass, jint buttons) {
+    pkmnstadium::battle_panel::hold(static_cast<uint16_t>(buttons));
+}
+
+// Called from BattlePanel.java when a team card is confirmed: send out that slot.
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeSwitch(JNIEnv*, jclass, jint slot) {
+    pkmnstadium::battle_panel::send_out(static_cast<int>(slot));
 }
 #endif
