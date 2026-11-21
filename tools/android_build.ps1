@@ -4,7 +4,8 @@
 #   ... -Native    native library only
 #   ... -Package   skip the native build, only stage and package
 #   ... -Install   also install on the connected device
-param([switch]$Native, [switch]$Package, [switch]$Install)
+#   ... -Release   build the release APK (needs the signing key, see app/build.gradle)
+param([switch]$Native, [switch]$Package, [switch]$Install, [switch]$Release)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -56,12 +57,16 @@ try {
     # library grew the APK by another copy. Start from a fresh APK.
     Remove-Item (Join-Path $root 'android\app\build\outputs\apk') -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $root 'android\app\build\intermediates\packaged_res') -Recurse -Force -ErrorAction SilentlyContinue
-    Invoke-Checked "`"$gradle`" --no-daemon assembleDebug > `"$root\_gradle_android.log`" 2>&1"
+    $task = if ($Release) { 'assembleRelease' } else { 'assembleDebug' }
+    Invoke-Checked "`"$gradle`" --no-daemon $task > `"$root\_gradle_android.log`" 2>&1"
 } finally {
     Pop-Location
 }
-$apk = Join-Path $root 'android\app\build\outputs\apk\debug\app-debug.apk'
+$apk = if ($Release) { Join-Path $root 'android\app\build\outputs\apk\release\app-release.apk' } else { Join-Path $root 'android\app\build\outputs\apk\debug\app-debug.apk' }
 "APK: $apk  ({0:N0} MB)" -f ((Get-Item $apk).Length / 1MB)
+# Which key signed it (every build must be signed with the release key; see app/build.gradle).
+$apksigner = Get-ChildItem (Join-Path $sdk 'build-tools') -Recurse -Filter apksigner.bat | Select-Object -First 1
+if ($apksigner) { cmd /c "`"$($apksigner.FullName)`" verify --print-certs `"$apk`"" | Select-String 'Signer #1 certificate DN' }
 
 if ($Install) {
     Invoke-Checked "`"$adb`" install -r `"$apk`""

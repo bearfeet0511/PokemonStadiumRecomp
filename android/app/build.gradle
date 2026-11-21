@@ -24,6 +24,39 @@ android {
         }
     }
 
+    // Release signing. Every release must be signed with this ONE key: Android
+    // only installs an update over an app signed with the same key, and the
+    // alternative (uninstall first) deletes the app folder with everyone's saves.
+    // The keystore and its passwords stay outside the repo, in the builder's own
+    // ~/.gradle/gradle.properties:
+    //   STADIUM_RELEASE_STORE=C:/Users/<you>/.android/stadiumrecomp-release.jks
+    //   STADIUM_RELEASE_STORE_PASSWORD=...
+    //   STADIUM_RELEASE_KEY_ALIAS=stadiumrecomp
+    //   STADIUM_RELEASE_KEY_PASSWORD=...
+    signingConfigs {
+        release {
+            if (project.hasProperty('STADIUM_RELEASE_STORE')) {
+                storeFile file(STADIUM_RELEASE_STORE)
+                storePassword STADIUM_RELEASE_STORE_PASSWORD
+                keyAlias STADIUM_RELEASE_KEY_ALIAS
+                keyPassword STADIUM_RELEASE_KEY_PASSWORD
+            }
+        }
+    }
+
+    buildTypes {
+        // Test builds use the release key too, so a tester's install can always be
+        // updated by a release (and the other way round) without uninstalling.
+        debug {
+            if (project.hasProperty('STADIUM_RELEASE_STORE')) signingConfig signingConfigs.release
+        }
+        release {
+            // Native code is built and stripped by tools\android_build.ps1.
+            minifyEnabled false
+            signingConfig project.hasProperty('STADIUM_RELEASE_STORE') ? signingConfigs.release : null
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8

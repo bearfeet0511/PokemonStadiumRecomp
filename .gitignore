@@ -105,3 +105,6 @@ android/.gradle/
 android/build/
 android/app/build/
 android/local.properties
+
+# Copies of the Thor's app folder (ROM and saves): never commit
+thor-backups/
