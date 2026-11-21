@@ -96,13 +96,17 @@ std::string clean(std::string text) {
 } // namespace
 
 // Tapping a move: the C-buttons only pick a move once the move list is open, so
-// a tap first checks which battle menu has control. Found by diffing RDRAM at
-// the first menu and at the move list (Thor, 2026-11-16): the battle engine keeps
-// a pointer to the active menu object at fragment base + 0x90068, and that
-// object's +0x18 is 0x66 at the first menu and 0x93 at the move list.
-constexpr uint32_t kMenuPtrOffset = 0x90068;
-constexpr uint32_t kMenuIdFirst = 0x66;
-constexpr uint32_t kMenuIdMoves = 0x93;
+// a tap first checks which battle menu has control. From pret's decomp of the
+// battle engine (fragment62_2F74E0.c, func_8430F0C0 / func_8430EF4C):
+// D_84390010[2] (fragment + 0x90010) points to each side's battle state, whose
+// menu block at +0x654 has a mode at +0x04 (0 top menu, 1 Fight, 2 Pokemon,
+// 3 Run), a step at +0x10 (0 waiting at the top menu, 1 in a submenu, 3 chosen)
+// and the side's controller at +0xC8. A at the top menu sets mode 1; the next
+// frame sets step 1, and only then do the C-buttons pick a move. Checked against
+// RDRAM dumps at both menus (Thor, 2026-11-21).
+constexpr uint32_t kSideStates = 0x90010;     // fragment offset of D_84390010[2]
+constexpr uint32_t kMenuBlock = 0x654;
+constexpr uint32_t kControllers = 0x800A7320; // gControllers; Player 1 is the first
 constexpr uint16_t kButtonA = 0x8000;
 constexpr int64_t kHoldMs = 100;      // long enough for a couple of controller polls
 constexpr int64_t kGiveUpMs = 1500;   // the move list never came up
@@ -125,11 +129,19 @@ enum class Menu { Unknown, First, Moves };
 static Menu battle_menu(const uint8_t* rdram) {
     if (rdram == nullptr) return Menu::Unknown;
     const uint32_t frag = read32(rdram, kFragments + kBattleFrag * 8);
-    if (frag == 0 || !in_rdram(frag + kMenuPtrOffset, 4)) return Menu::Unknown;
-    const uint32_t menu = read32(rdram, frag + kMenuPtrOffset);
-    if (!in_rdram(menu, 0x20)) return Menu::Unknown;
-    const uint32_t id = read32(rdram, menu + 0x18);
-    return id == kMenuIdMoves ? Menu::Moves : id == kMenuIdFirst ? Menu::First : Menu::Unknown;
+    if (frag == 0 || !in_rdram(frag + kSideStates, 8)) return Menu::Unknown;
+    for (uint32_t side = 0; side < 2; ++side) {
+        const uint32_t state = read32(rdram, frag + kSideStates + side * 4);
+        if (!in_rdram(state, kMenuBlock + 0xCC)) continue;
+        const uint32_t menu = state + kMenuBlock;
+        if (read32(rdram, menu + 0xC8) != kControllers) continue; // not Player 1's side
+        const uint32_t mode = read32(rdram, menu + 0x04);
+        const uint32_t step = read32(rdram, menu + 0x10);
+        if (mode == 0 && step == 0) return Menu::First;
+        if (mode == 1 && step == 1) return Menu::Moves;
+        return Menu::Unknown;
+    }
+    return Menu::Unknown;
 }
 
 static const char* menu_name(Menu menu) {

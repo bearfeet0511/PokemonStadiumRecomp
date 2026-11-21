@@ -129,15 +129,8 @@ public class BattlePanel extends Presentation {
             return true;
         }
 
-        /** Sets the paint to the largest size up to maxSize at which text fits maxWidth. */
-        private void fit(String s, float maxSize, float maxWidth) {
-            float size = maxSize;
-            text.setTextSize(size);
-            while (size > 8f && text.measureText(s) > maxWidth) {
-                size *= 0.92f;
-                text.setTextSize(size);
-            }
-        }
+        // The panel's one text size, set at the start of each draw.
+        private float font;
 
         void update(String snapshot) {
             if (snapshot.equals(last)) return;
@@ -185,28 +178,30 @@ public class BattlePanel extends Presentation {
             }
             final float pad = Math.min(w, h) * 0.025f;
             final float split = w * 0.48f;
+            final float cardH = Math.min((h - pad * (mons.size() + 1)) / mons.size(), h * 0.3f);
+            final float moveH = (h - pad * 5) / 4;
+            // One text size for the whole panel: two lines must fit the smaller box.
+            font = Math.min(Math.min(cardH, moveH) * 0.3f, h * 0.045f);
+            text.setTextSize(font);
 
             // Left: the team.
-            final float cardH = (h - pad * (mons.size() + 1)) / mons.size();
             Mon active = null;
             for (int i = 0; i < mons.size(); i++) {
                 Mon m = mons.get(i);
                 if (m.active) active = m;
-                drawMon(canvas, m, pad, pad + i * (cardH + pad), split - pad / 2, Math.min(cardH, h * 0.3f));
+                drawMon(canvas, m, pad, pad + i * ((h - pad * (mons.size() + 1)) / mons.size() + pad), split - pad / 2, cardH);
             }
 
             // Right: the active Pokemon's moves.
             final float left = split + pad / 2, right = w - pad;
             for (int i = 0; i < 4; i++) moveTappable[i] = false;
             if (active == null) {
-                text.setTextSize(h * 0.04f);
                 text.setColor(Color.rgb(150, 160, 185));
                 text.setTextAlign(Paint.Align.CENTER);
                 canvas.drawText("Choosing...", (left + right) / 2, h / 2, text);
                 text.setTextAlign(Paint.Align.LEFT);
                 return;
             }
-            final float moveH = (h - pad * 5) / 4;
             for (int i = 0; i < 4; i++) {
                 float top = pad + i * (moveH + pad);
                 if (drawMove(canvas, MOVE_BUTTONS[i], active.moves[i], active.pp[i], left, top, right, moveH, i == flashMove)) {
@@ -230,44 +225,46 @@ public class BattlePanel extends Presentation {
                 fill.setStyle(Paint.Style.FILL);
             }
             final int alpha = m.fainted ? 110 : 255;
-            final float inset = height * 0.1f;
+            final float inset = font * 0.6f;
             final float x = left + inset;
             final float width = right - left - inset * 2;
+            final float line1 = top + height * 0.42f;   // baselines of the two lines
+            final float line2 = top + height * 0.82f;
 
-            // Name, and level or status on the right.
-            float size = height * 0.15f;
-            float y = top + inset + size * 0.9f;
+            // Line 1: name, and level or status on the right.
             String tag = m.fainted ? "FNT" : m.status.isEmpty() ? "Lv " + m.level : m.status;
-            text.setTextSize(size);
             float tagWidth = text.measureText(tag);
             text.setTextAlign(Paint.Align.RIGHT);
             text.setColor(m.fainted ? Color.rgb(230, 90, 90) : statusColor(m.status));
             text.setAlpha(alpha);
-            c.drawText(tag, right - inset, y, text);
+            c.drawText(tag, right - inset, line1, text);
             text.setTextAlign(Paint.Align.LEFT);
-            fit(m.name, size, width - tagWidth - inset);
             text.setColor(Color.WHITE);
             text.setAlpha(alpha);
-            c.drawText(m.name, x, y, text);
+            c.drawText(ellipsize(m.name, width - tagWidth - inset), x, line1, text);
 
-            // HP bar with numbers under it.
-            float barTop = y + size * 0.45f;
-            float barH = height * 0.13f;
-            rect.set(x, barTop, x + width, barTop + barH);
+            // Line 2: HP numbers on the right, the bar in the space before them.
+            String hpText = m.hp + "/" + m.maxHp;
+            float hpWidth = text.measureText(hpText);
+            text.setTextAlign(Paint.Align.RIGHT);
+            text.setColor(Color.rgb(200, 206, 222));
+            text.setAlpha(alpha);
+            c.drawText(hpText, right - inset, line2, text);
+            text.setTextAlign(Paint.Align.LEFT);
+            float barH = font * 0.5f;
+            float barTop = line2 - font * 0.35f - barH / 2;
+            final float barWidth = width - hpWidth - inset;
+            rect.set(x, barTop, x + barWidth, barTop + barH);
             fill.setColor(Color.rgb(60, 66, 84));
             c.drawRoundRect(rect, barH / 2, barH / 2, fill);
-            float frac = Math.max(0f, Math.min(1f, m.hp / (float) m.maxHp));
+            float frac = m.maxHp > 0 ? Math.max(0f, Math.min(1f, m.hp / (float) m.maxHp)) : 0f;
             if (frac > 0) {
-                rect.set(x, barTop, x + width * frac, barTop + barH);
+                rect.set(x, barTop, x + barWidth * frac, barTop + barH);
                 fill.setColor(frac > 0.5f ? Color.rgb(76, 200, 110) : frac > 0.2f ? Color.rgb(240, 196, 60) : Color.rgb(230, 80, 70));
                 fill.setAlpha(alpha);
                 c.drawRoundRect(rect, barH / 2, barH / 2, fill);
                 fill.setAlpha(255);
             }
-            text.setTextSize(height * 0.12f);
-            text.setColor(Color.rgb(200, 206, 222));
-            text.setAlpha(alpha);
-            c.drawText("HP " + m.hp + " / " + m.maxHp, x, barTop + barH + height * 0.17f, text);
             text.setAlpha(255);
         }
 
@@ -286,24 +283,29 @@ public class BattlePanel extends Presentation {
             rect.set(left + inset, top + inset, left + inset + chip * 1.25f, top + inset + chip);
             fill.setColor(Color.rgb(250, 204, 40));
             c.drawRoundRect(rect, chip / 2, chip / 2, fill);
-            text.setTextSize(chip * 0.5f);
             text.setColor(Color.rgb(30, 30, 30));
             text.setTextAlign(Paint.Align.CENTER);
-            c.drawText(button, rect.centerX(), rect.centerY() + chip * 0.18f, text);
-
-            // PP on the right, then the move name in the space left between.
-            final float nameLeft = rect.right + inset;
-            final String ppText = "PP " + pp;
-            text.setTextAlign(Paint.Align.RIGHT);
-            text.setTextSize(height * 0.19f);
-            final float ppWidth = text.measureText(ppText);
-            text.setColor("0".equals(pp) ? Color.rgb(230, 80, 70) : Color.rgb(170, 180, 205));
-            c.drawText(ppText, right - inset, top + height / 2 + height * 0.07f, text);
+            c.drawText(button, rect.centerX(), rect.centerY() + font * 0.35f, text);
             text.setTextAlign(Paint.Align.LEFT);
-            fit(move, height * 0.22f, right - inset - ppWidth - inset - nameLeft);
+
+            // Line 1: the move name; line 2: its PP.
+            final float nameLeft = rect.right + inset;
+            final float nameWidth = right - inset - nameLeft;
             text.setColor(Color.WHITE);
-            c.drawText(move, nameLeft, top + height / 2 + height * 0.08f, text);
+            c.drawText(ellipsize(move, nameWidth), nameLeft, top + height * 0.44f, text);
+            text.setColor("0".equals(pp) ? Color.rgb(230, 80, 70) : Color.rgb(170, 180, 205));
+            c.drawText("PP " + pp, nameLeft, top + height * 0.82f, text);
             return true;
+        }
+
+        /** Cuts text to fit width at the current size, ending with an ellipsis. */
+        private String ellipsize(String s, float width) {
+            if (text.measureText(s) <= width) return s;
+            String cut = s;
+            while (cut.length() > 1 && text.measureText(cut + "…") > width) {
+                cut = cut.substring(0, cut.length() - 1);
+            }
+            return cut + "…";
         }
 
         private static int statusColor(String status) {

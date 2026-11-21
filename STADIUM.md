@@ -126,15 +126,15 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Active Pokemon: pointer at `0x800FCB18` -> battle copy (heap). `+0x0B` Pokedex number, `+0x0C` current HP (u16 BE, live), `+0x1C/+0x1D` types, `+0x1F..+0x22` moves, `+0x26` level, `+0x28` max HP, `+0x32..+0x35` PP. Match it to a record by moves + level. A second copy at `ptr + 0x340` is likely the opponent's (unverified).
 - Move names: NUL-separated ASCII list in move-ID order in the ROM (US v1.0 at `0x795A98`, starting "POUND"). Read them from the user's ROM at runtime; don't copy game text into the repo.
 - Picks: the records are in pick order, and `0x800AE546` holds how many are in the battle (3 or 6).
-- Battle menu: fragment62 base + `0x90068` points to the active menu object; its `+0x18` was `0x66` at the first menu and `0x93` at the move list in one Thor battle. Tapping a move uses this (press A, wait for the move list, press the C-button) but did NOT work on first try (2026-11-16); read `[battle-panel]` lines in `stderr.log` to see which menu it saw.
+- Battle menu (from pret's decomp, `fragment62_2F74E0.c`; works, 2026-11-21): `D_84390010[2]` at fragment62 base + `0x90010` points to each side's battle state. Its menu block at `+0x654` has mode `+0x04` (0 top menu, 1 Fight, 2 Pokemon, 3 Run), step `+0x10` (0 waiting at the top menu, 1 in a submenu, 3 chosen) and the side's controller `+0xC8` (`gControllers` = `0x800A7320`, Player 1 first). C-buttons pick a move only at mode 1 / step 1. Tapping a move presses A at the top menu, waits for that state, then presses the C-button. (The earlier guess, a pointer at base + `0x90068`, flips between the two sides' states.) The battle engine is decompiled, so read pret's C before diffing RAM.
 - Controls (from the game's screen): moves are C-up / C-right / C-down / C-left for move slots 1-4; L cancels. The button that sends out each Pokemon is still unknown.
 
 ## Android to-do (2026-11-16, end of session)
-- Tap-to-use-move doesn't work yet (see Battle memory, battle menu); read the tap log first.
 - Big frame drops when moves are used in battle on the Thor. Check whether it's the panel (JNI read every 250 ms, battle_menu() on every input poll) or the game itself (compare with the panel closed).
 - Widescreen on Android tears the enemy portrait in half (the PC also showed portraits out of their boxes again in a Free Battle).
 - Bottom screen when not in battle: show Stadium's own logo, drawn from the user's ROM at runtime.
-- Panel text: more adjustments to come (user feedback).
+- Panel text: one size throughout, HP and PP on a second line, long names end in "…" (2026-11-21). More tweaks may follow.
+- Frame rate in battle is uneven on the Thor (sound is fine, 2026-11-21).
 - Team cards: add the button that sends out each Pokemon, once known.
 - The Windows build hasn't been rebuilt from `build/android`; check it still builds and runs before merging.
 - Earlier open items: GB Tower load time and off-centre picture, music quieter than PC, Transfer Pak saves back to PokeDaisy, a touch launcher/ROM picker.
