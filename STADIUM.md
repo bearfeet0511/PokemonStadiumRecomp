@@ -156,6 +156,9 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Texture packs: wanted (user, 2026-11-21). RT64 supports replacement textures; needs a way to pick a pack on Android and a launcher setting on Windows.
 - The Windows build hasn't been rebuilt from `build/android`; check it still builds and runs before merging.
 - Earlier open items: GB Tower load time and off-centre picture, music quieter than PC, Transfer Pak saves back to PokeDaisy, a touch launcher/ROM picker.
+- Android launcher (next, 2026-11-21): settings (graphics, widescreen, 60 fps), Stadium ROM and per-player GB cart/save pickers, dual-screen friendly.
+- In-app updates without losing saves: check GitHub Releases like the PC launcher, download the APK and hand it to Android's installer (user taps Update). Saves live in the app folder, which survives updates but is deleted on uninstall, so: (1) sign releases with ONE permanent release key (the debug key changes per build machine, and a signature mismatch forces an uninstall); never lose it; (2) also back saves up outside the app folder (e.g. Documents/StadiumRecomp).
+- Public post on the AYN Thor subreddit once the launcher works (user's idea): beta label, features + known issues list, players supply their own ROMs/saves (never link ROMs), source public with credits (SS Anne/mstan, pret, N64Recomp, RT64, Goemon64Recomp-Android, Gen1Recomp terms).
 
 ## Transfer Pak findings (Windows, 2026-10-30)
 - An empty `pN_save` means no save at all: cart RAM is memory-only and lost at exit, even though the launcher shows "Default (runtime chooses)". Fix planned: default to `<rom basename>.sav` next to the ROM.
