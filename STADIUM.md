@@ -73,7 +73,9 @@ Inspected from its readme, patch notes and text strings only (no ROMs touched). 
 ### Releases (fork pre-releases, `netplay-testNN`)
 - Build so the exe embeds the release commit (`build_ssanne.bat` reconfigures; check `PSR_GIT_COMMIT` in `build\build.ninja` equals `HEAD`), package with `_package_release.ps1 -Version fork-netplay-testNN`, publish with `gh release create --target <full sha> --prerelease`, and confirm GitHub's asset digest matches.
 - GitHub's release list order is not by date (it listed test9 before test10). Builds through test 10 offer whatever GitHub lists first; from `65d913f` on, the launcher picks the newest `published_at`. Tests 6-9 were renamed to `netplay-test06`-`09` for that reason. After publishing, run the previous release's exe from `dist\` for a few seconds and check its `[update]` stderr line offers the new build.
-- Not yet released: `65d913f` (update order fix); bundle with the next fix.
+- Every release must carry a Windows zip, uploaded **first**: Windows builds up to test 10 take the newest release's first asset, and an APK (a zip archive) would be unpacked into their game folder. Builds from test 11 take only the `.zip` and skip releases without one.
+- Android in the same release: `android_build.ps1 -Release`, asset named `StadiumRecomp-android-<versionName>-<versionCode>.apk` (the launcher's update check reads the number), versionCode bumped every release.
+- Released: test 11 + Android beta 1 (`2a37374`), test 12 + Android beta 2 (save write-back).
 
 ### Later / maybe
 - Stadium 2 (separate recomp of a different game; much of the platform work would carry over). Check state of any Stadium 2 decomp first. The 3DS port's author (@dave_schobert) said Stadium 2 is his next port; watch it for findings. The same GPL source rules apply if he ships binaries.
