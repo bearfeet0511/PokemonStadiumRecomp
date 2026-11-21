@@ -13,14 +13,16 @@ No ROMs or game assets are included. Bring your own Pokémon Stadium (US v1.0) R
 - **Native, not emulated.** The game's code is recompiled to native code (N64Recomp) and drawn with RT64 on Direct3D 12 or Vulkan.
 - **Windows and Android.** Android needs a 64-bit ARM device with Vulkan; it's developed on the AYN Thor (Snapdragon 8 Gen 2) and works on single-screen devices too.
 - **Dual-screen battle panel** (Android, dual-screen devices). The second screen shows your team with HP and status and the active Pokémon's moves with PP and their buttons. Tap a move to use it, tap a team member twice to switch, and tap buttons on the team-pick screen. A dimmed Stadium logo the rest of the time.
-- **Transfer Pak with real write-back.** Use your Pokémon Red, Blue or Yellow cart and save: Game Pak checks, Pokémon Lab storage and trades are written back to your `.sav`. Two players, each with their own cart.
-- **Gen1Recomp saves** (Windows). Use a [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) save slot as a cart; changes are merged back, keeping mod data such as nuzlocke tracking.
+- **Transfer Pak with real write-back.** Use your Pokémon Red, Blue or Yellow cart and save: Pokémon Lab storage and trades are saved straight to your own `.sav`, the same file your Game Boy emulator uses. No exporting. Two players, each with their own cart.
+- **Gen1Recomp saves** (Windows for now). Use a [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) save slot as a cart; changes are merged back, keeping mod data such as nuzlocke tracking.
 - **Smooth battles.** A renderer fix keeps send-outs, moves and camera pans from dropping frames, even on handhelds.
 - **Widescreen battles** (experimental). Menus stay 4:3.
 - **60 fps** (experimental). In-between frames while the game runs at its normal speed.
 - **Save safety.** Automatic backups every session; on Android, saves can also be copied to a folder of your choice that survives uninstalling.
 - **Updates in the app.** The launcher on both platforms tells you when a new build is out and installs it without touching your saves.
-- **Online play** (Windows, testing). Netplay builds are in the test releases.
+- **Online play** (testing, Windows for now). Netplay builds are in the test releases.
+
+Features land on one platform first and are meant to reach both.
 
 ## Getting started
 
@@ -33,11 +35,11 @@ Settings live in `launcher.cfg` next to the exe. `aspect_ratio=widescreen` and `
 
 ### Android
 1. Download `StadiumRecomp-android-….apk` from [Releases](https://github.com/bearfeet0511/PokemonStadiumRecomp/releases) and install it (allow installs from your browser or file manager when asked).
-2. Open **Stadium Recomp** and choose your Stadium ROM. For the Transfer Pak, choose a Game Boy ROM and its `.sav` per player.
+2. Open **Stadium Recomp** and choose your Stadium ROM. For the Transfer Pak, choose a Game Boy ROM and its `.sav` per player. The save stays linked: Stadium's changes are written straight back to that file, and changes you make in your Game Boy emulator are picked up next time you press Play.
 3. Recommended: **Choose backup folder**, for example Documents.
 4. Press **Play**. In the launcher, use the D-pad to move, A to select, B to close and Start to play.
 
-Files you pick are copied into the app's folder. **Export save** copies a Game Boy save back out. To update, use the in-app update or install the new APK over the old one. **Don't uninstall to update:** uninstalling deletes the app's folder, including saves you haven't backed up.
+Keep your `.sav` in a normal folder such as Documents or Download: since Android 11, apps can't open files inside another app's private `Android/data` folder. To update, use the in-app update or install the new APK over the old one. **Don't uninstall to update:** uninstalling deletes the app's folder, including saves you haven't backed up.
 
 ### Game Boy saves
 Stadium only accepts a Red/Blue/Yellow save that was made inside a Pokémon Center. A brand-new save may also need one PC box change in the Game Boy game before Stadium accepts it.

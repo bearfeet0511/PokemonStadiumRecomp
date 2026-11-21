@@ -150,10 +150,7 @@ public class LauncherActivity extends Activity {
             column.addView(cartRow);
             saveStatus[p] = text("", 15, Color.rgb(200, 206, 222), false);
             column.addView(saveStatus[p]);
-            LinearLayout saveRow = row();
-            saveRow.addView(button("Choose save (.sav)", v -> pick(PICK_SAVE + player)), weight());
-            saveRow.addView(button("Export save", v -> exportSave(player)), weight());
-            column.addView(saveRow);
+            column.addView(button("Choose save (.sav)", v -> pick(PICK_SAVE + player)));
         }
 
         column.addView(header("Settings"));
@@ -310,7 +307,12 @@ public class LauncherActivity extends Activity {
             String c = cfg.get("p" + (p + 1) + "_rom");
             String s = cfg.get("p" + (p + 1) + "_save");
             cartStatus[p].setText("Cart: " + (c != null && !c.isEmpty() && new File(dir, c).exists() ? new File(c).getName() : "none"));
-            saveStatus[p].setText("Save: " + (s != null && !s.isEmpty() && new File(dir, s).exists() ? new File(s).getName() : "none"));
+            String linked = cfg.get("p" + (p + 1) + "_save_uri");
+            boolean hasSave = s != null && !s.isEmpty() && new File(dir, s).exists();
+            saveStatus[p].setText("Save: " + (!hasSave ? "none"
+                    : new File(s).getName() + (linked != null && !linked.isEmpty()
+                            ? "  (linked: Stadium's changes are saved straight to your file)"
+                            : "  (not linked: choose it again to save changes to your own file)")));
         }
         playButton.setEnabled(rom != null && !busy);
         playButton.setAlpha(playButton.isEnabled() ? 1f : 0.5f);
@@ -353,8 +355,32 @@ public class LauncherActivity extends Activity {
 
     private void play() {
         if (busy || romFile() == null) return;
+        busy = true;
+        refresh();
         writeConfig();
-        backupSaves();
+        progress("Syncing your saves…", -1);
+        new Thread(() -> {
+            // Pull in changes made to the players' own save files since last time
+            // (e.g. in an emulator), so Stadium sees the latest Pokémon.
+            java.util.List<String> warnings = SaveSync.syncBeforePlay(this, dir, cfg);
+            backupSaves();
+            progressDone();
+            ui.post(() -> {
+                busy = false;
+                if (!warnings.isEmpty()) {
+                    new android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                            .setMessage(android.text.TextUtils.join("\n\n", warnings))
+                            .setPositiveButton("Play", (d, w) -> startGame())
+                            .setCancelable(false)
+                            .show();
+                } else {
+                    startGame();
+                }
+            });
+        }).start();
+    }
+
+    private void startGame() {
         startActivity(new Intent(this, MainActivity.class));
         finish();
     }
@@ -366,26 +392,17 @@ public class LauncherActivity extends Activity {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
+        // Saves stay linked so Stadium's changes can be written back to them.
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         startActivityForResult(i, request);
-    }
-
-    private void exportSave(int player) {
-        String s = cfg.get("p" + (player + 1) + "_save");
-        if (s == null || s.isEmpty() || !new File(dir, s).exists()) {
-            say("Player " + (player + 1) + " has no save to export.");
-            return;
-        }
-        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("application/octet-stream");
-        i.putExtra(Intent.EXTRA_TITLE, new File(s).getName());
-        startActivityForResult(i, EXPORT_SAVE + player);
     }
 
     private void removeCart(int player) {
         String key = "p" + (player + 1);
         cfg.remove(key + "_rom");
         cfg.remove(key + "_save");
+        cfg.remove(key + "_save_uri");
         writeConfig();
         refresh();
         say("Player " + (player + 1) + "'s Transfer Pak is empty (the files stay in the carts folder).");
@@ -411,7 +428,6 @@ public class LauncherActivity extends Activity {
         new Thread(() -> {
             try {
                 if (request == PICK_ROM) importRom(uri);
-                else if (request >= EXPORT_SAVE) exportSaveTo(request - EXPORT_SAVE, uri);
                 else if (request >= PICK_SAVE) importSave(request - PICK_SAVE, uri);
                 else if (request >= PICK_CART) importCart(request - PICK_CART, uri);
             } catch (Exception e) {
@@ -492,8 +508,19 @@ public class LauncherActivity extends Activity {
         say("Player " + (player + 1) + " cart: " + title + ". Choose its save next (or play with an empty one).");
     }
 
-    /** Copies the save in. A save already there with that name is kept as a dated backup first. */
+    /**
+     * Links the player's save: keeps permission to write to the original file and
+     * makes the working copy the game plays from (SaveSync writes changes back).
+     * A working copy already there with that name is kept as a dated backup first.
+     */
     private void importSave(int player, Uri uri) throws Exception {
+        boolean writable = true;
+        try {
+            getContentResolver().takePersistableUriPermission(uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        } catch (SecurityException e) {
+            writable = false;
+        }
         byte[] sav = readAll(uri);
         File carts = new File(dir, "carts");
         carts.mkdirs();
@@ -509,18 +536,15 @@ public class LauncherActivity extends Activity {
             o.write(sav);
         }
         cfg.put("p" + (player + 1) + "_save", "carts/" + name);
-        say("Player " + (player + 1) + " save: " + name + " (" + sav.length / 1024 + " KB).");
-    }
-
-    private void exportSaveTo(int player, Uri uri) throws Exception {
-        File src = new File(dir, cfg.get("p" + (player + 1) + "_save"));
-        try (InputStream in = new FileInputStream(src); OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
-            if (out == null) throw new IOException("can't write there");
-            byte[] buf = new byte[1 << 16];
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        if (writable) {
+            cfg.put("p" + (player + 1) + "_save_uri", uri.toString());
+            SaveSync.markInSync(dir, player + 1, sav);
+            say("Player " + (player + 1) + " save linked: " + name + ". Changes in Stadium are saved straight to it.");
+        } else {
+            cfg.remove("p" + (player + 1) + "_save_uri");
+            say("Player " + (player + 1) + " save: " + name + ". That location doesn't allow writing, so changes stay in "
+                    + "Stadium's copy. Move the save to a folder like Documents and choose it again.");
         }
-        say("Exported " + src.getName() + ".");
     }
 
     private static void copy(File from, File to) throws IOException {

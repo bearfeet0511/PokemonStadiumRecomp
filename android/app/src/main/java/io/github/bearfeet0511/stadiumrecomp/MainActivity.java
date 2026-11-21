@@ -35,9 +35,41 @@ public class MainActivity extends SDLActivity {
         }
     };
 
+    // Writes Transfer Pak save changes back to the players' own .sav files as they happen.
+    private SaveSync.Watcher saveSync;
+
     @Override
     protected String[] getLibraries() {
         return new String[] { "SDL2", "PokemonStadiumRecomp" };
+    }
+
+    @Override
+    protected void onCreate(android.os.Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        java.io.File dir = getExternalFilesDir(null);
+        if (dir != null) saveSync = new SaveSync.Watcher(this, dir, readConfig(dir));
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (saveSync != null) {
+            saveSync.stop();
+            saveSync = null;
+        }
+        super.onDestroy();
+    }
+
+    private static java.util.Map<String, String> readConfig(java.io.File dir) {
+        java.util.Map<String, String> cfg = new java.util.HashMap<>();
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(new java.io.File(dir, "launcher.cfg")))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                int eq = line.indexOf('=');
+                if (!line.startsWith("#") && eq > 0) cfg.put(line.substring(0, eq).trim(), line.substring(eq + 1).trim());
+            }
+        } catch (java.io.IOException ignored) {
+        }
+        return cfg;
     }
 
     @Override
@@ -54,6 +86,7 @@ public class MainActivity extends SDLActivity {
             displayManager.unregisterDisplayListener(displayListener);
         }
         closeBattlePanel();
+        if (saveSync != null) saveSync.flush();
         super.onPause();
     }
 
