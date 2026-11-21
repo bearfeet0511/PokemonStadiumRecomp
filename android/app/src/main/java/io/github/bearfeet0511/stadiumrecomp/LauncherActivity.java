@@ -407,6 +407,7 @@ public class LauncherActivity extends Activity {
         }
         busy = true;
         refresh();
+        progress("Copying the file…", -1);
         new Thread(() -> {
             try {
                 if (request == PICK_ROM) importRom(uri);
@@ -417,6 +418,7 @@ public class LauncherActivity extends Activity {
                 Log.w(TAG, "file operation failed", e);
                 say("That didn't work: " + e.getMessage());
             }
+            progressDone();
             ui.post(() -> {
                 busy = false;
                 writeConfig();
@@ -450,7 +452,7 @@ public class LauncherActivity extends Activity {
 
     /** Copies the ROM in as baserom.z64, fixing .n64/.v64 byte order, and checks it's US v1.0. */
     private void importRom(Uri uri) throws Exception {
-        say("Checking the ROM…");
+        progress("Checking the ROM…", -1);
         byte[] rom = readAll(uri);
         if (rom.length < 0x1000) throw new IOException("that file is too small to be an N64 ROM");
         int b0 = rom[0] & 0xFF, b1 = rom[1] & 0xFF;
@@ -592,6 +594,45 @@ public class LauncherActivity extends Activity {
         return created;
     }
 
+    // ---- Progress window ----------------------------------------------------
+
+    // A window over the launcher for long jobs (update download and install,
+    // ROM check), so it never looks like nothing is happening.
+    private android.app.AlertDialog progressDialog;
+    private TextView progressText;
+    private android.widget.ProgressBar progressBar;
+
+    /** Shows or updates the progress window. percent < 0 shows a spinning bar. Safe from any thread. */
+    private void progress(String text, int percent) {
+        ui.post(() -> {
+            if (progressDialog == null) {
+                LinearLayout box = new LinearLayout(this);
+                box.setOrientation(LinearLayout.VERTICAL);
+                box.setPadding(dp(24), dp(20), dp(24), dp(20));
+                progressText = text("", 17, Color.WHITE, false);
+                box.addView(progressText);
+                progressBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+                progressBar.setMax(100);
+                box.addView(progressBar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(24)));
+                progressDialog = new android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                        .setView(box).setCancelable(false).create();
+                progressDialog.show();
+            }
+            progressText.setText(text);
+            progressBar.setIndeterminate(percent < 0);
+            if (percent >= 0) progressBar.setProgress(percent);
+        });
+    }
+
+    private void progressDone() {
+        ui.post(() -> {
+            if (progressDialog != null) {
+                progressDialog.dismiss();
+                progressDialog = null;
+            }
+        });
+    }
+
     // ---- Updates ------------------------------------------------------------
 
     private int versionCode() {
@@ -655,6 +696,7 @@ public class LauncherActivity extends Activity {
         if (busy || updateUrl == null) return;
         busy = true;
         refresh();
+        progress("Connecting to GitHub…", -1);
         new Thread(() -> {
             File apk = new File(getExternalCacheDir(), "update.apk");
             try {
@@ -663,19 +705,21 @@ public class LauncherActivity extends Activity {
                 long total = c.getContentLengthLong();
                 try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
                     byte[] buf = new byte[1 << 16];
-                    long done = 0, shown = 0;
+                    long done = 0;
+                    int shownPercent = -1;
                     int n;
                     while ((n = in.read(buf)) > 0) {
                         out.write(buf, 0, n);
                         done += n;
-                        if (done - shown > (8 << 20)) {
-                            shown = done;
-                            say(total > 0 ? String.format(Locale.US, "Downloading %s: %d%%", updateName, done * 100 / total)
-                                          : String.format(Locale.US, "Downloading %s: %d MB", updateName, done >> 20));
+                        int percent = total > 0 ? (int) (done * 100 / total) : -1;
+                        if (percent != shownPercent || total <= 0 && (done & ((4 << 20) - 1)) < n) {
+                            shownPercent = percent;
+                            progress(String.format(Locale.US, "Downloading %s\n%d of %s MB", updateName, done >> 20,
+                                    total > 0 ? String.valueOf(total >> 20) : "?"), percent);
                         }
                     }
                 }
-                say("Installing… Android will ask you to confirm.");
+                progress("Preparing the update…", 0);
                 android.content.pm.PackageInstaller installer = getPackageManager().getPackageInstaller();
                 android.content.pm.PackageInstaller.SessionParams params = new android.content.pm.PackageInstaller.SessionParams(
                         android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -684,10 +728,21 @@ public class LauncherActivity extends Activity {
                 try (android.content.pm.PackageInstaller.Session session = installer.openSession(id)) {
                     try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("update.apk", 0, apk.length())) {
                         byte[] buf = new byte[1 << 16];
-                        int n;
-                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        long done = 0;
+                        int shownPercent = -1, n;
+                        while ((n = in.read(buf)) > 0) {
+                            out.write(buf, 0, n);
+                            done += n;
+                            int percent = (int) (done * 100 / Math.max(1, apk.length()));
+                            if (percent != shownPercent) {
+                                shownPercent = percent;
+                                progress("Preparing the update…", percent);
+                            }
+                        }
+                        progress("Finishing up…", -1);
                         session.fsync(out);
                     }
+                    progress("Android is checking the update.\nConfirm when it asks; this can take a minute.", -1);
                     Intent status = new Intent(this, LauncherActivity.class).setAction(ACTION_INSTALL_STATUS);
                     android.app.PendingIntent pending = android.app.PendingIntent.getActivity(this, 0, status,
                             android.app.PendingIntent.FLAG_MUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
@@ -695,6 +750,7 @@ public class LauncherActivity extends Activity {
                 }
             } catch (Exception e) {
                 Log.w(TAG, "update failed", e);
+                progressDone();
                 say("Update failed: " + e.getMessage());
                 ui.post(() -> {
                     busy = false;
@@ -707,10 +763,12 @@ public class LauncherActivity extends Activity {
     private void onInstallStatus(Intent intent) {
         int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
         if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            progress("Confirm the update in Android's prompt.\nWhen it's installed, open Stadium Recomp again.", -1);
             Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
             if (confirm != null) startActivity(confirm);
             return;
         }
+        progressDone();
         busy = false;
         refresh();
         if (status != android.content.pm.PackageInstaller.STATUS_SUCCESS) {
