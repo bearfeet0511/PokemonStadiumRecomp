@@ -50,19 +50,98 @@ bool in_rdram(uint32_t addr, uint32_t size) {
     return addr >= 0x80000000u && addr + size <= 0x80800000u;
 }
 
+std::filesystem::path rom_path() {
+    std::filesystem::path rom;
+    if (std::ifstream cfg(exe_dir() / "rom.cfg"); cfg) {
+        std::string line;
+        if (std::getline(cfg, line)) rom = line;
+    }
+    if (rom.empty() || !std::filesystem::exists(rom)) rom = exe_dir() / "baserom.z64";
+    return rom;
+}
+
+uint32_t be32(const std::vector<char>& d, size_t at) {
+    return (uint32_t(uint8_t(d[at])) << 24) | (uint32_t(uint8_t(d[at + 1])) << 16) |
+           (uint32_t(uint8_t(d[at + 2])) << 8) | uint32_t(uint8_t(d[at + 3]));
+}
+
+std::vector<char> read_rom(std::ifstream& file, uint32_t offset, uint32_t size) {
+    std::vector<char> d(size);
+    file.seekg(offset);
+    if (!file.read(d.data(), size)) d.clear();
+    return d;
+}
+
+} // namespace
+
+// Yay0 decompression (the format inside Stadium's PERS-SZP assets).
+std::vector<uint8_t> yay0(const std::vector<char>& y) {
+    if (y.size() < 16 || std::string(y.data(), 4) != "Yay0") return {};
+    const uint32_t size = be32(y, 4);
+    uint32_t links = be32(y, 8), chunks = be32(y, 12), masks = 16;
+    std::vector<uint8_t> d;
+    d.reserve(size);
+    uint32_t mask = 0;
+    int bits = 0;
+    while (d.size() < size) {
+        if (bits == 0) {
+            if (masks + 4 > y.size()) return {};
+            mask = be32(y, masks);
+            masks += 4;
+            bits = 32;
+        }
+        if (mask & 0x80000000u) {
+            if (chunks >= y.size()) return {};
+            d.push_back(uint8_t(y[chunks++]));
+        } else {
+            if (links + 2 > y.size()) return {};
+            const uint32_t link = (uint32_t(uint8_t(y[links])) << 8) | uint8_t(y[links + 1]);
+            links += 2;
+            const uint32_t dist = (link & 0xFFF) + 1;
+            uint32_t count = link >> 12;
+            if (count == 0) {
+                if (chunks >= y.size()) return {};
+                count = uint8_t(y[chunks++]) + 18;
+            } else {
+                count += 2;
+            }
+            if (dist > d.size()) return {};
+            for (uint32_t i = 0; i < count && d.size() < size; ++i) d.push_back(d[d.size() - dist]);
+        }
+        mask <<= 1;
+        --bits;
+    }
+    return d;
+}
+
+// The Stadium logo for the idle bottom screen, read from the player's ROM like
+// the move names. The minigame demos draw it from the kids_club_game_ui asset
+// (US v1.0 ROM 0x675FA0-0x696350, pret's rom.yaml; loaded at segment 3 by
+// 29BA0.c): fragment2.c func_878021B4 draws D_304F120 as 100x56 RGBA32 in 100x8
+// strips. The asset is PERS-SZP: a header (its size at +8), then Yay0 data.
+std::vector<uint8_t> logo_rgba() {
+    constexpr uint32_t kStart = 0x675FA0, kEnd = 0x696350, kLogo = 0x4F120;
+    std::ifstream file(rom_path(), std::ios::binary);
+    if (!file) return {};
+    const auto blob = read_rom(file, kStart, kEnd - kStart);
+    if (blob.size() < 0x20 || std::string(blob.data(), 8) != "PERS-SZP") return {};
+    const uint32_t header = be32(blob, 8);
+    if (header >= blob.size()) return {};
+    const auto data = yay0(std::vector<char>(blob.begin() + header, blob.end()));
+    constexpr uint32_t kBytes = kLogoWidth * kLogoHeight * 4;
+    if (data.size() < kLogo + kBytes) return {};
+    return std::vector<uint8_t>(data.begin() + kLogo, data.begin() + kLogo + kBytes);
+}
+
+namespace {
+
 // Move names come from the player's own ROM (a NUL-separated list in move-ID
 // order), so no game text is copied into this project.
 const std::vector<std::string>& move_names() {
     static std::vector<std::string> names;
     static std::once_flag loaded;
     std::call_once(loaded, [] {
-        std::filesystem::path rom;
-        if (std::ifstream cfg(exe_dir() / "rom.cfg"); cfg) {
-            std::string line;
-            if (std::getline(cfg, line)) rom = line;
-        }
-        if (rom.empty() || !std::filesystem::exists(rom)) rom = exe_dir() / "baserom.z64";
-        std::ifstream file(rom, std::ios::binary);
+        std::ifstream file(rom_path(), std::ios::binary);
         const std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         static const char kFirst[] = "POUND\0KARATE CHOP";
         const auto it = std::search(data.begin(), data.end(), kFirst, kFirst + sizeof(kFirst) - 1);
@@ -369,6 +448,22 @@ Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeSnapshot(JNIEnv* env
 extern "C" JNIEXPORT void JNICALL
 Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativePress(JNIEnv*, jclass, jint buttons) {
     pkmnstadium::battle_panel::press(static_cast<uint16_t>(buttons));
+}
+
+// Called once from BattlePanel.java: the logo as ARGB ints (100 x 56), or null.
+extern "C" JNIEXPORT jintArray JNICALL
+Java_io_github_bearfeet0511_stadiumrecomp_BattlePanel_nativeLogo(JNIEnv* env, jclass) {
+    using namespace pkmnstadium::battle_panel;
+    const auto rgba = logo_rgba();
+    if (rgba.empty()) return nullptr;
+    std::vector<jint> argb(kLogoWidth * kLogoHeight);
+    for (size_t i = 0; i < argb.size(); ++i) {
+        const uint8_t* p = &rgba[i * 4];
+        argb[i] = static_cast<jint>((uint32_t(p[3]) << 24) | (uint32_t(p[0]) << 16) | (uint32_t(p[1]) << 8) | p[2]);
+    }
+    jintArray out = env->NewIntArray(static_cast<jsize>(argb.size()));
+    if (out != nullptr) env->SetIntArrayRegion(out, 0, static_cast<jsize>(argb.size()), argb.data());
+    return out;
 }
 
 // Called from BattlePanel.java for a plain button (the pick screen's buttons).

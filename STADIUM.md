@@ -133,7 +133,7 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 
 ## Android to-do (2026-11-16, end of session)
 - Widescreen moves the Pokemon portraits out of their boxes (player's left, enemy's right), on Android and PC. Same root as the battle fades: RT64's per-draw edge alignment in Expand mode. Fix the two together.
-- Bottom screen when not in battle: show Stadium's own logo, drawn from the user's ROM at runtime.
+- Idle bottom screen (done 2026-11-21): black with the Stadium logo at half width, ~35% alpha (user: like Cocoon's single-screen logo). The logo is read from the user's ROM at runtime: kids_club_game_ui (ROM 0x675FA0-0x696350, PERS-SZP = header + Yay0), offset 0x4F120, 100x56 RGBA32 (fragment2.c func_878021B4 draws D_304F120). The title screen art is file 0 of the backgrounds archive (ROM 0x3CB130; files are PRESJPEG = 16-byte header + a plain JPEG), if ever wanted.
 - Panel text: one size throughout, HP and PP on a second line, long names end in "…" (2026-11-21). More tweaks may follow.
 
 ## Performance findings (Thor, 2026-11-21)

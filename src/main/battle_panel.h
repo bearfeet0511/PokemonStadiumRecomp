@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // Battle info for a second-screen panel, read from game memory (see battle_panel.cpp
 // and STADIUM.md "Battle memory").
@@ -17,6 +18,11 @@ namespace pkmnstadium::battle_panel {
 //   "pick\t1"                       the pre-battle pick screen instead, followed by
 //   "slot\t<slot>\t<name>\t<level>" one per team slot
 std::string snapshot();
+
+// The Stadium logo from the player's ROM: kLogoWidth x kLogoHeight RGBA bytes, or empty.
+constexpr uint32_t kLogoWidth = 100;
+constexpr uint32_t kLogoHeight = 56;
+std::vector<uint8_t> logo_rgba();
 
 // Holds buttons briefly with no menu checks (the pick screen's buttons).
 void hold(uint16_t buttons);

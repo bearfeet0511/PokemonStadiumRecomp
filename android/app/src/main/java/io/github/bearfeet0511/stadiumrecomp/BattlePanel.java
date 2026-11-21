@@ -39,6 +39,8 @@ public class BattlePanel extends Presentation {
 
     static native void nativeHold(int buttons);
 
+    static native int[] nativeLogo();
+
     // Pick screen: the button that picks each team slot (fragment64), and L to undo.
     private static final int[] PICK_BITS = { 0x4000, 0x0002, 0x0008, 0x8000, 0x0004, 0x0001 };
     private static final int BUTTON_L = 0x0020;
@@ -295,6 +297,9 @@ public class BattlePanel extends Presentation {
             }
             if (!inBattle || mons.isEmpty()) {
                 for (int i = 0; i < 4; i++) moveTappable[i] = false;
+                cardRects.clear();
+                cardMons.clear();
+                drawTitle(canvas, w, h);
                 return;
             }
             final float pad = Math.min(w, h) * 0.025f;
@@ -453,6 +458,36 @@ public class BattlePanel extends Presentation {
             text.setColor("0".equals(pp) ? Color.rgb(230, 80, 70) : Color.rgb(170, 180, 205));
             c.drawText("PP " + pp, nameLeft, top + height * 0.82f, text);
             return true;
+        }
+
+        // The Stadium logo from the player's ROM, shown when there's nothing else.
+        private static final int LOGO_W = 100, LOGO_H = 56;
+        private android.graphics.Bitmap logo;
+        private boolean logoTried;
+        private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+
+        private void drawTitle(Canvas c, float w, float h) {
+            if (!logoTried) {
+                try {
+                    int[] argb = nativeLogo();
+                    if (argb != null && argb.length == LOGO_W * LOGO_H) {
+                        logo = android.graphics.Bitmap.createBitmap(argb, LOGO_W, LOGO_H, android.graphics.Bitmap.Config.ARGB_8888);
+                    }
+                    logoTried = true;
+                } catch (UnsatisfiedLinkError e) {
+                    return; // native library not loaded yet: try again next draw
+                }
+            }
+            // Pure black (OLED pixels off) with a dimmed logo, like single-screen
+            // games on dual-screen handhelds: easy on the eyes and the battery.
+            c.drawColor(Color.BLACK);
+            if (logo == null) return;
+            bitmapPaint.setAlpha(90);
+            // Centred, half the width (or the height, if that's tighter), keeping its shape.
+            float scale = Math.min(w * 0.5f / LOGO_W, h * 0.5f / LOGO_H);
+            float dw = LOGO_W * scale, dh = LOGO_H * scale;
+            rect.set((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2);
+            c.drawBitmap(logo, null, rect, bitmapPaint);
         }
 
         /** Pick screen: a tile per team slot (3 x 2, slot order) and an L "Undo" bar. */
