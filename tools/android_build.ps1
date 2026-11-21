@@ -33,6 +33,10 @@ if (-not $Package) {
     $toolchain = (Join-Path $ndk 'build\cmake\android.toolchain.cmake') -replace '\\', '/'
     Invoke-Checked "`"$cmake`" -S `"$root`" -B `"$out`" -G Ninja `"-DCMAKE_MAKE_PROGRAM=$($ninja -replace '\\','/')`" `"-DCMAKE_TOOLCHAIN_FILE=$toolchain`" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DCMAKE_BUILD_TYPE=RelWithDebInfo `"-DRT64_FILE_TO_C=$($fileToC -replace '\\','/')`" -DWITH_ARES_BRIDGE=OFF -DWITH_DEV_DIVERGENCE=OFF -Wno-dev > `"$root\_cfg_android.log`" 2>&1"
     Invoke-Checked "start `"`" /belownormal /b /wait `"$cmake`" --build `"$out`" --target PokemonStadiumRecomp -- -j 6 > `"$root\_build_android.log`" 2>&1"
+    # `start /wait` doesn't pass the build's exit code on, so check its log.
+    if (Select-String -Path "$root\_build_android.log" -Pattern 'build stopped|error:' -Quiet) {
+        throw "native build failed: see _build_android.log"
+    }
 }
 if ($Native) { return }
 

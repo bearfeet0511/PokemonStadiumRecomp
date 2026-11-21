@@ -132,11 +132,17 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - Controls (from the game's screen): moves are C-up / C-right / C-down / C-left for move slots 1-4; L cancels. The button that sends out each Pokemon is still unknown.
 
 ## Android to-do (2026-11-16, end of session)
-- Big frame drops when moves are used in battle on the Thor. Check whether it's the panel (JNI read every 250 ms, battle_menu() on every input poll) or the game itself (compare with the panel closed).
-- Widescreen on Android tears the enemy portrait in half (the PC also showed portraits out of their boxes again in a Free Battle).
+- Widescreen moves the Pokemon portraits out of their boxes (player's left, enemy's right), on Android and PC. Same root as the battle fades: RT64's per-draw edge alignment in Expand mode. Fix the two together.
 - Bottom screen when not in battle: show Stadium's own logo, drawn from the user's ROM at runtime.
 - Panel text: one size throughout, HP and PP on a second line, long names end in "…" (2026-11-21). More tweaks may follow.
-- Frame rate in battle is uneven on the Thor (sound is fine, 2026-11-21).
+
+## Performance findings (Thor, 2026-11-21)
+- Battle frame drops (pans, send-outs, moves) were the GPU: ~24 ms per battle frame at 3x, 30-50 ms on heavy effects. Cause: rt64 patch 0001 (and the fork's rect/alpha-blend rule before it) sent every rect, alpha-blended and 3D draw to the ubershader to avoid conservative raster, so specialised shaders were built but never used. Patch 0004 gives each specialised shader a non-conservative pipeline: intro GPU time 18 -> 5.4 ms, GPU at its lowest clock (401 MHz) instead of 550 MHz / 79% busy. "Way way better" in battle. Check on PC too (same patch), and watch for the rainbow lines / fade seam that 0001 fixed.
+- The game draws 30 frames per second (30 display lists/s; screen updates are 60/s). update_screen counts VI swaps, not game frames.
+- RT64 "render to RAM" is required: without it menu images turn to rainbow noise and battle portraits / Oddish's face break. It costs CPU time (sync copy every frame) but wasn't the GPU problem.
+- Not the cause: HDR colour buffers (RT64 picks 16-bit float on Adreno; forcing standard changed nothing), texture filtering, the bottom-screen panel, shader compilation.
+- Tools: `[frame-stats]` every 5 s in stderr.log (game frames, CPU time per display list, GPU time per frame from the workload queue's execute/wait, shader count); `[rt64-config]` at start; `psr_env.txt` in the Android app folder sets PSR_* overrides (`PSR_RT64_RES_MULT`, `PSR_RT64_HDR`, `PSR_RT64_FILTERING`, `PSR_RT64_RENDER_TO_RAM`); a `no_panel` file turns the bottom screen off; GPU clock in `/sys/class/kgsl/kgsl-3d0/gpuclk` and `gpu_busy_percentage`; simpleperf from the NDK for CPU profiles.
+- Texture packs: wanted (user, 2026-11-21). RT64 supports replacement textures; needs a way to pick a pack on Android and a launcher setting on Windows.
 - The Windows build hasn't been rebuilt from `build/android`; check it still builds and runs before merging.
 - Earlier open items: GB Tower load time and off-centre picture, music quieter than PC, Transfer Pak saves back to PokeDaisy, a touch launcher/ROM picker.
 

@@ -2028,6 +2028,18 @@ int main(int argc, char** argv) {
     if (std::freopen((pkmnstadium::exe_dir() / "stderr.log").string().c_str(), "w", stderr) != nullptr) {
         std::setvbuf(stderr, nullptr, _IONBF, 0);
     }
+    // Apps can't be given environment variables on Android, so the debug
+    // overrides (PSR_*) can come from psr_env.txt in the app folder: KEY=VALUE lines.
+    if (std::ifstream env_file(pkmnstadium::exe_dir() / "psr_env.txt"); env_file) {
+        std::string line;
+        while (std::getline(env_file, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            const auto eq = line.find('=');
+            if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
+            setenv(line.substr(0, eq).c_str(), line.substr(eq + 1).c_str(), 1);
+            std::fprintf(stderr, "[psr_env] %s\n", line.c_str());
+        }
+    }
 #endif
 
 #ifdef _WIN32

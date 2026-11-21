@@ -1,0 +1,84 @@
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 5f1fcb3..6e729e6 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -10,7 +10,15 @@
+ 
+ #define ENABLE_HIGH_RESOLUTION_RENDERER 1
+ 
++#include <atomic>
++#include <chrono>
++
+ namespace RT64 {
++    // PSR: GPU time counters (see the timing around the workload's execute/wait).
++    std::atomic<uint64_t> psrGpuWaitUs{0};
++    std::atomic<uint64_t> psrGpuWaitMaxUs{0};
++    std::atomic<uint64_t> psrGpuFrames{0};
++
+     static const int ReferenceHeight = 240;
+     static const int ReferenceInterlacedHeight = 480;
+ 
+@@ -886,8 +894,17 @@ namespace RT64 {
+ 
+             ext.workloadGraphicsWorker->commandList->end();
+             framebufferRenderer->waitForUploaders();
++            const auto gpuStart = std::chrono::steady_clock::now();
+             ext.workloadGraphicsWorker->execute();
+             ext.workloadGraphicsWorker->wait();
++            {
++                // PSR: GPU time per frame (submit to completion), read by the game's frame log.
++                const uint64_t us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - gpuStart).count());
++                psrGpuWaitUs += us;
++                psrGpuFrames += 1;
++                uint64_t prevMax = psrGpuWaitMaxUs.load();
++                while ((us > prevMax) && !psrGpuWaitMaxUs.compare_exchange_weak(prevMax, us)) {}
++            }
+             workerMutex.unlock();
+ 
+             // Indicate to the texture cache it's safe to delete the textures if no locks are active.
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index e3dc408..3287104 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1659,9 +1659,11 @@ namespace RT64 {
+                         }();
+                         const bool perspective = s_noConservativePerspective && (proj.type == Projection::Type::Perspective);
+                         const bool noConservative = isRect || alphaBlend || perspective;
+-                        RasterShader *gpuShader = (p.ubershadersOnly || noConservative) ? nullptr : p.rasterShaderCache->getGPUShader(call.shaderDesc);
++                        // PSR: specialised shaders have a non-conservative pipeline too, so
++                        // these draws no longer need the (slow) ubershader.
++                        RasterShader *gpuShader = p.ubershadersOnly ? nullptr : p.rasterShaderCache->getGPUShader(call.shaderDesc);
+                         if (gpuShader != nullptr) {
+-                            triangles.pipeline = gpuShader->pipeline.get();
++                            triangles.pipeline = noConservative ? gpuShader->pipelineNoConservative.get() : gpuShader->pipeline.get();
+                         }
+                         else {
+                             triangles.pipeline = rasterShaderUber->getPipeline(
+diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
+index 8c87f81..8280a12 100644
+--- a/src/render/rt64_raster_shader.cpp
++++ b/src/render/rt64_raster_shader.cpp
+@@ -237,6 +237,8 @@ namespace RT64 {
+ #endif
+         creation.multisampling = multisampling;
+         pipeline = createPipeline(creation);
++        creation.conservativeRaster = false;
++        pipelineNoConservative = createPipeline(creation);
+     }
+ 
+     RasterShader::~RasterShader() { }
+diff --git a/src/render/rt64_raster_shader.h b/src/render/rt64_raster_shader.h
+index b11a11c..7a9a789 100644
+--- a/src/render/rt64_raster_shader.h
++++ b/src/render/rt64_raster_shader.h
+@@ -73,6 +73,10 @@ namespace RT64 {
+         ShaderDescription desc;
+         RenderDevice *device;
+         std::unique_ptr<RenderPipeline> pipeline;
++        // PSR: the same shader without conservative raster, for the draws that
++        // must not use it (rects, alpha blending, 3D models). Before this they
++        // fell back to the ubershader, which is very slow on mobile GPUs.
++        std::unique_ptr<RenderPipeline> pipelineNoConservative;
+ 
+         RasterShader(RenderDevice *device, const ShaderDescription &desc, const RenderPipelineLayout *pipelineLayout, RenderShaderFormat shaderFormat, const RenderMultisampling &multisampling, 
+             const ShaderCompiler *shaderCompiler, const OptimizerCacheSPIRV *optimizerCacheSPIRV);

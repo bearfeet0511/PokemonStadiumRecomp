@@ -26,6 +26,9 @@
 #define NOMINMAX
 
 #include <memory>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <cassert>
@@ -195,6 +198,14 @@ static void set_application_user_config(RT64::Application* application,
             std::fprintf(stderr, "[psr-rt64] PSR_RT64_DOWNSAMPLE='%s' rejected (need int in [1,8])\n", d);
         }
     }
+    // High-precision (16-bit float) colour buffers: RT64's Automatic picks them
+    // when the GPU prefers HDR. PSR_RT64_HDR=0/1 forces Standard/High.
+    if (const char* h = std::getenv("PSR_RT64_HDR")) {
+        application->userConfig.internalColorFormat = (h[0] == '1')
+            ? RT64::UserConfiguration::InternalColorFormat::High
+            : RT64::UserConfiguration::InternalColorFormat::Standard;
+        std::fprintf(stderr, "[psr-rt64] forced internal colour format = %s\n", h[0] == '1' ? "High" : "Standard");
+    }
     if (const char* f = std::getenv("PSR_RT64_FILTERING")) {
         if (!std::strcmp(f, "Nearest")) {
             application->userConfig.filtering = RT64::UserConfiguration::Filtering::Nearest;
@@ -336,6 +347,13 @@ pokestadium::renderer::RT64Context::RT64Context(uint8_t* rdram,
     app->enhancementConfig.f3dex.forceBranch = true;
     // Scale LODs based on the output resolution.
     app->enhancementConfig.textureLOD.scale = true;
+    // RT64's "render to RAM" copies each frame back into RDRAM because the game
+    // reads its own framebuffer (menu images and battle portraits break without
+    // it). PSR_RT64_RENDER_TO_RAM=0 turns it off, for performance comparisons only.
+    if (const char* r = std::getenv("PSR_RT64_RENDER_TO_RAM"); r != nullptr && r[0] == '0') {
+        app->emulatorConfig.framebuffer.renderToRAM = false;
+        std::fprintf(stderr, "[psr-rt64] render to RAM off (PSR_RT64_RENDER_TO_RAM=0): menus and portraits will break\n");
+    }
 
     switch (cur_config.api_option) {
         case ultramodern::renderer::GraphicsApi::D3D12:
@@ -374,12 +392,81 @@ pokestadium::renderer::RT64Context::RT64Context(uint8_t* rdram,
     }
 
     high_precision_fb_enabled = app->shaderLibrary->usesHDR;
+    std::fprintf(stderr,
+                 "[rt64-config] res mult %.2f downsample %d, msaa %d, refresh mode %d target %d, hdr %d, "
+                 "swapchain %ux%u @ %u Hz, filtering %d, upscale2D %d\n",
+                 app->userConfig.resolutionMultiplier, int(app->userConfig.downsampleMultiplier),
+                 int(app->userConfig.antialiasing), int(app->userConfig.refreshRate),
+                 int(app->userConfig.refreshRateTarget), int(high_precision_fb_enabled),
+                 app->sharedQueueResources->swapChainWidth, app->sharedQueueResources->swapChainHeight,
+                 app->sharedQueueResources->swapChainRate, int(app->userConfig.filtering),
+                 int(app->userConfig.upscale2D));
 }
 
 pokestadium::renderer::RT64Context::~RT64Context() = default;
 
 extern "C" void pkmnstadium_gdl_submit_snapshot(uint8_t* rdram, uint32_t dl_vaddr,
                                                 uint64_t submit_seq);
+
+// Frame timing for performance work: every 5 s, one "[frame-stats]" line in the
+// log with the game's frame rate (screen updates per second), the longest gap
+// between frames, how many gaps were over 50 ms, and how long RT64 took to
+// process each graphics display list (average and worst).
+namespace RT64 {
+extern std::atomic<uint64_t> psrGpuWaitUs;
+extern std::atomic<uint64_t> psrGpuWaitMaxUs;
+extern std::atomic<uint64_t> psrGpuFrames;
+}
+
+namespace {
+struct FrameStats {
+    using clock = std::chrono::steady_clock;
+    clock::time_point window_start = clock::now();
+    clock::time_point last_frame{};
+    uint32_t frames = 0;
+    uint32_t hitches = 0;
+    double max_gap_ms = 0;
+    uint32_t dls = 0;
+    double dl_total_ms = 0;
+    double dl_max_ms = 0;
+
+    void on_dl(double ms) {
+        ++dls;
+        dl_total_ms += ms;
+        dl_max_ms = std::max(dl_max_ms, ms);
+    }
+
+    uint32_t shaders = 0; // specialised shaders built so far (the rest draw with the ubershader)
+
+    void on_frame() {
+        const auto now = clock::now();
+        if (last_frame != clock::time_point{}) {
+            const double gap = std::chrono::duration<double, std::milli>(now - last_frame).count();
+            max_gap_ms = std::max(max_gap_ms, gap);
+            if (gap > 50.0) ++hitches;
+        }
+        last_frame = now;
+        ++frames;
+        const double window = std::chrono::duration<double>(now - window_start).count();
+        if (window >= 5.0) {
+            const uint64_t gpu_us = RT64::psrGpuWaitUs.exchange(0);
+            const uint64_t gpu_max_us = RT64::psrGpuWaitMaxUs.exchange(0);
+            const uint64_t gpu_frames = RT64::psrGpuFrames.exchange(0);
+            std::fprintf(stderr,
+                         "[frame-stats] %.1f fps, max gap %.0f ms, %u over 50 ms; dl %.1f/s avg %.2f ms max %.1f ms; "
+                         "gpu %.1f/s avg %.2f ms max %.1f ms; %u shaders\n",
+                         frames / window, max_gap_ms, hitches, dls / window, dls ? dl_total_ms / dls : 0.0,
+                         dl_max_ms, gpu_frames / window, gpu_frames ? gpu_us / 1000.0 / gpu_frames : 0.0,
+                         gpu_max_us / 1000.0, shaders);
+            const uint32_t keep_shaders = shaders;
+            *this = FrameStats{};
+            shaders = keep_shaders;
+            last_frame = now;
+        }
+    }
+};
+FrameStats s_frame_stats; // send_dl and update_screen both run on the graphics thread
+} // namespace
 
 void pokestadium::renderer::RT64Context::send_dl(const OSTask* task) {
     pkmnstadium::dbg::g_send_dl_count.fetch_add(1);
@@ -397,13 +484,20 @@ void pokestadium::renderer::RT64Context::send_dl(const OSTask* task) {
                                         task->t.data_ptr & 0x3FFFFFF,
                                         submit_seq);
     }
+    const auto dl_start = std::chrono::steady_clock::now();
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
     app->processDisplayLists(app->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
+    if (task->t.type == M_GFXTASK) {
+        s_frame_stats.on_dl(
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - dl_start).count());
+    }
 }
 
 void pokestadium::renderer::RT64Context::update_screen() {
     pkmnstadium::dbg::g_update_screen_count.fetch_add(1);
+    s_frame_stats.shaders = app->rasterShaderCache->shaderCount();
+    s_frame_stats.on_frame();
     app->updateScreen();
 }
 

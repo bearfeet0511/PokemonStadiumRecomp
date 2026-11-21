@@ -87,11 +87,17 @@ std::string status_text(uint8_t status) {
     return "";
 }
 
+// Keeps printable ASCII only: the text goes to Java through NewStringUTF, which
+// aborts the app on bytes that aren't valid modified UTF-8 (game memory can hold
+// anything, e.g. a stale record on the pick screen), and tabs/newlines split fields.
 std::string clean(std::string text) {
-    for (char& c : text) {
-        if (c == '\t' || c == '\n') c = ' ';
+    std::string out;
+    for (const char c : text) {
+        const auto u = static_cast<unsigned char>(c);
+        if (u >= 0x20 && u < 0x7F) out += c;
+        else if (c == '\t' || c == '\n') out += ' ';
     }
-    return text;
+    return out;
 }
 
 } // namespace

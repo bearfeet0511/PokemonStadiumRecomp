@@ -61,6 +61,10 @@ public class MainActivity extends SDLActivity {
     private void updateBattlePanel() {
         Display[] displays = displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
         Display target = displays.length > 0 ? displays[0] : null;
+        // Test switch for performance work: a file named no_panel in the app folder
+        // turns the panel off.
+        java.io.File dir = getExternalFilesDir(null);
+        if (dir != null && new java.io.File(dir, "no_panel").exists()) target = null;
         Log.i(TAG, "presentation displays: " + displays.length + (target != null ? " -> " + target.getDisplayId() + " " + target.getName() : ""));
         if (battlePanel != null && (target == null || battlePanel.getDisplay().getDisplayId() != target.getDisplayId())) {
             closeBattlePanel();
