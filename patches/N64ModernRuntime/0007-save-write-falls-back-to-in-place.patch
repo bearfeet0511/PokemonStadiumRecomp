@@ -1,0 +1,61 @@
+diff --git a/librecomp/src/files.cpp b/librecomp/src/files.cpp
+index af6f18d..e1f75b9 100644
+--- a/librecomp/src/files.cpp
++++ b/librecomp/src/files.cpp
+@@ -1,5 +1,7 @@
+ #include "files.hpp"
+ 
++#include <cstdio>
++
+ constexpr std::u8string_view backup_suffix = u8".bak";
+ constexpr std::u8string_view temp_suffix = u8".temp";
+ 
+@@ -28,6 +30,24 @@ std::ofstream recomp::open_output_file_with_backup(const std::filesystem::path&
+     return temp_file_out;
+ }
+ 
++// PSR: copies `from` over `to` by rewriting `to` in place (truncate + write).
++// std::filesystem::copy_file can refuse to replace a file the process may
++// still write to, e.g. on Android a file in the app's own folder that adb
++// created: the save stayed in the .temp and every save "failed" (2026-11-22).
++static bool overwrite_in_place(const std::filesystem::path& from, const std::filesystem::path& to) {
++    std::ifstream in{from, std::ios_base::binary};
++    if (!in.good()) {
++        return false;
++    }
++    std::ofstream out{to, std::ios_base::binary | std::ios_base::trunc};
++    if (!out.good()) {
++        return false;
++    }
++    out << in.rdbuf();
++    out.flush();
++    return out.good();
++}
++
+ bool recomp::finalize_output_file_with_backup(const std::filesystem::path& filepath) {
+     std::filesystem::path backup_path{filepath};
+     backup_path += backup_suffix;
+@@ -37,14 +57,20 @@ bool recomp::finalize_output_file_with_backup(const std::filesystem::path& filep
+ 
+     std::error_code ec;
+     if (std::filesystem::exists(filepath, ec)) {
++        // The .bak is only a safety copy: failing to make it must not stop the save.
+         std::filesystem::copy_file(filepath, backup_path, std::filesystem::copy_options::overwrite_existing, ec);
+-        if (ec) {
+-            return false;
++        if (ec && !overwrite_in_place(filepath, backup_path)) {
++            std::fprintf(stderr, "[save] couldn't update the backup %s: %s\n", backup_path.string().c_str(), ec.message().c_str());
+         }
+     }
++    ec.clear();
+     std::filesystem::copy_file(temp_path, filepath, std::filesystem::copy_options::overwrite_existing, ec);
+     if (ec) {
+-        return false;
++        std::fprintf(stderr, "[save] copy_file to %s failed (%s); writing it in place\n", filepath.string().c_str(), ec.message().c_str());
++        if (!overwrite_in_place(temp_path, filepath)) {
++            std::fprintf(stderr, "[save] writing %s in place failed too\n", filepath.string().c_str());
++            return false;
++        }
+     }
+     std::filesystem::remove(temp_path, ec);
+     return true;

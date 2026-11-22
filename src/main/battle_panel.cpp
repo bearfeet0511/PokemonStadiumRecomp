@@ -28,6 +28,7 @@ namespace {
 constexpr uint32_t kFragments = 0x800A58F0;  // gFragments: { vaddr, size } per id
 constexpr uint32_t kBattleFrag = 0x43 - 0x10; // fragment62, the battle engine
 constexpr uint32_t kPickFrag = 0x48 - 0x10;   // fragment64, the pre-battle pick screen
+constexpr uint32_t kTeamBlock = 0x800AE544;   // player's team block (D_800AE540 + 4; pret: unk_D_800AE540_0004)
 constexpr uint32_t kTeamCount = 0x800AE546;   // how many records take part (3 or 6)
 constexpr uint32_t kTeam = 0x800AE561;        // player's records, in pick order
 constexpr uint32_t kRecordSize = 0x54;
@@ -384,10 +385,23 @@ std::string snapshot() {
         // func_848027F0): B, C-left, C-up, A, C-down, C-right; L undoes a pick.
         if (read32(rdram, kFragments + kPickFrag * 8) == 0) return "battle\t0\n";
         std::string out = "pick\t1\n";
+        // The pick screen lists the full roster (fragment64.c func_84802F7C: the team
+        // block's +0x214 points to it; count at +0x002, records at +0x028), not the
+        // team list at kTeam, which after a cup or Gym Leader Castle battle holds
+        // only that battle's picks, in pick order.
+        uint32_t first = kTeam;
         uint32_t count = read8(rdram, kTeamCount);
+        const uint32_t roster = read32(rdram, kTeamBlock + 0x214);
+        if (in_rdram(roster, 0x28 + 6 * kRecordSize)) {
+            const uint32_t roster_count = read8(rdram, roster + 0x002);
+            if (roster_count >= 1 && roster_count <= 6) {
+                first = roster + 0x028 + (kTeam - (kTeamBlock + 0x01C)); // same record layout
+                count = roster_count;
+            }
+        }
         if (count < 1 || count > 6) count = 6;
         for (uint32_t i = 0; i < count; ++i) {
-            const uint32_t rec = kTeam + i * kRecordSize;
+            const uint32_t rec = first + i * kRecordSize;
             if (read8(rdram, rec + 8) == 0) continue; // empty slot
             out += "slot\t" + std::to_string(i) + "\t" + record_name(rdram, rec) + "\t" +
                    std::to_string(read8(rdram, rec + 0x23)) + "\n";
