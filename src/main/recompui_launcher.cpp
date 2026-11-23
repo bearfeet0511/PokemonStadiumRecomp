@@ -261,6 +261,7 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
     }
     s.no_update_check = (cfg.count("check_updates") && !parse_bool(cfg["check_updates"], true)) ? 1 : 0;
     s.aspect_index = (to_lower_str(get("aspect_ratio")) == "widescreen") ? 1 : 0;
+    s.frame_interp = (std::atoi(get("framerate").c_str()) == 60) ? 1 : 0;
 }
 
 // Persist a committed RecompLauncherCSettings back to launcher.cfg, using the
@@ -268,7 +269,6 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
 // startup_* getters read graphics_api/supersampling/antialiasing/window_mode/
 // audio_device.
 void write_settings_to_cfg(const RecompLauncherCSettings& s) {
-    const int framerate_to_keep = startup_framerate();
     std::ofstream f(pkmnstadium::exe_dir() / "launcher.cfg", std::ios::trunc);
     if (!f) {
         std::fprintf(stderr, "[recompui] WARN: cannot write launcher.cfg\n");
@@ -327,9 +327,8 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "check_updates=" << (s.no_update_check ? "off" : "on") << "\n";
     f << "# aspect_ratio=original|widescreen : widescreen widens battles; menus stay 4:3.\n";
     f << "aspect_ratio=" << (s.aspect_index == 1 ? "widescreen" : "original") << "\n";
-    // Not in the launcher UI yet: keep whatever the file had.
     f << "# framerate=30|60 : 60 draws in-between frames (experimental: brief glitches on fast motion).\n";
-    f << "framerate=" << framerate_to_keep << "\n";
+    f << "framerate=" << (s.frame_interp ? 60 : 30) << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------
@@ -407,6 +406,11 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     gi.aspect_labels       = kAspects;
     gi.num_aspect_labels   = 2;
     gi.aspect_experimental = 1;
+
+    // 60 fps: RT64 draws in-between frames; the game logic stays at 30.
+    gi.has_frame_interp          = 1;
+    gi.frame_interp_label        = "60 fps";
+    gi.frame_interp_experimental = 1;
 
     // The rebind page edits PSR's own input.cfg (next to the exe) — the same
     // file pkmnstadium::input reads; recomp-ui's n64_binds.c replicates its
