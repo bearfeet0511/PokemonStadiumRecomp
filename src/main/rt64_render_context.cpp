@@ -388,6 +388,13 @@ pokestadium::renderer::RT64Context::RT64Context(uint8_t* rdram,
     thread_id = window_handle.thread_id;
 #endif
     setup_result = map_setup_result(app->setup(thread_id));
+    // Diagnosis switch: PSR_RT64_UBERSHADERS_ONLY=1 draws everything with RT64's
+    // ubershader (as before rt64 patch 0004), to tell whether a glitch comes from
+    // the specialised shaders. Slow on handhelds.
+    if (const char* u = std::getenv("PSR_RT64_UBERSHADERS_ONLY"); u != nullptr && u[0] == '1' && app->workloadQueue) {
+        app->workloadQueue->ubershadersOnly = true;
+        std::fprintf(stderr, "[psr-rt64] ubershaders only (PSR_RT64_UBERSHADERS_ONLY=1)\n");
+    }
     chosen_api = map_graphics_api(app->chosenGraphicsAPI);
     if (setup_result != ultramodern::renderer::SetupResult::Success) {
         app = nullptr;

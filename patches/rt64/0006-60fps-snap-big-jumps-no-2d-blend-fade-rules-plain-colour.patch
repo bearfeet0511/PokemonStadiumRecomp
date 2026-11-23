@@ -1,0 +1,113 @@
+diff --git a/src/hle/rt64_game_frame.cpp b/src/hle/rt64_game_frame.cpp
+index 0b1eb0d..209ff9b 100644
+--- a/src/hle/rt64_game_frame.cpp
++++ b/src/hle/rt64_game_frame.cpp
+@@ -4,6 +4,8 @@
+ 
+ #include "common/rt64_math.h"
+ 
++#include <cstdlib>
++
+ #include "rt64_game_frame.h"
+ #include "rt64_workload_queue.h"
+ 
+@@ -247,7 +249,41 @@ namespace RT64 {
+         prevScreenPos = (fabs(prevScreenPos.w) < 1e-6f) ? prevScreenPos : prevScreenPos / prevScreenPos.w;
+         curScreenPos = (fabs(curScreenPos.w) < 1e-6f) ? curScreenPos : curScreenPos / curScreenPos.w;
+         matchResult.screenSpaceDifference = hlslpp::length(curScreenPos.xyz - prevScreenPos.xyz);
+-        
++        const float screenJump = float(hlslpp::length(curScreenPos.xy - prevScreenPos.xy));
++
++        // PSR: don't blend between transforms that differ too much in one game frame.
++        // Stadium's move animations stretch and fling parts of a Pokemon's model; an
++        // in-between frame of such a jump (or of a part paired with the wrong partner)
++        // tears the model apart. Rejecting the pair draws that part where it really
++        // is (30 fps for that moment). Limits: PSR_INTERP_MAX_SCREEN (normalised
++        // screen units, the screen is 2 wide; default 0.5), PSR_INTERP_MAX_SCALE
++        // (scale ratio per axis, default 2), and rotations past 90 degrees.
++        static const float s_maxScreen = []() {
++            const char *v = std::getenv("PSR_INTERP_MAX_SCREEN");
++            return (v != nullptr) ? float(std::atof(v)) : 0.5f;
++        }();
++        static const float s_maxScale = []() {
++            const char *v = std::getenv("PSR_INTERP_MAX_SCALE");
++            return (v != nullptr) ? float(std::atof(v)) : 2.0f;
++        }();
++        if ((s_maxScreen > 0.0f) && (screenJump > s_maxScreen)) {
++            return matchResult;
++        }
++        if (s_maxScale > 1.0f) {
++            for (int axis = 0; axis < 3; axis++) {
++                const float prevLen = float(hlslpp::length(prevTransform[axis].xyz));
++                const float curLen = float(hlslpp::length(curTransform[axis].xyz));
++                if ((prevLen > 1e-6f) && (curLen > 1e-6f) && ((curLen > prevLen * s_maxScale) || (prevLen > curLen * s_maxScale))) {
++                    return matchResult;
++                }
++            }
++        }
++        for (int axis = 0; axis < 3; axis++) {
++            if (float(hlslpp::dot(hlslpp::normalize(curTransform[axis].xyz), hlslpp::normalize(prevTransform[axis].xyz))) < 0.0f) {
++                return matchResult;
++            }
++        }
++
+         matchResult.valid = true;
+         return matchResult;
+     }
+@@ -367,7 +403,13 @@ namespace RT64 {
+         };
+ 
+         matchScenes(perspectiveScenes, prevFrame.perspectiveScenes);
+-        matchScenes(orthographicScenes, prevFrame.orthographicScenes);
++        // PSR: 2D (orthographic) scenes are Stadium's menus, HUD and text. They gain
++        // little from in-between frames and glitched with them, so they're drawn as
++        // the game drew them. PSR_INTERP_2D=1 blends them again.
++        static const bool s_interp2D = (std::getenv("PSR_INTERP_2D") != nullptr) && (std::getenv("PSR_INTERP_2D")[0] == '1');
++        if (s_interp2D) {
++            matchScenes(orthographicScenes, prevFrame.orthographicScenes);
++        }
+ 
+         if (!workloadsModified.empty()) {
+             thread_local std::vector<BufferUploader::Upload> uploads;
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index e3168c5..217e6c1 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1710,11 +1710,11 @@ namespace RT64 {
+                                     static std::mutex s_triLogMutex;
+                                     static std::set<std::string> s_triSeen;
+                                     char line[256];
+-                                    std::snprintf(line, sizeof(line), "[tri] %s scissor %d,%d..%d,%d fbscissor %d..%d tris %u wide %d origin %u alpha %d",
++                                    std::snprintf(line, sizeof(line), "[tri] %s scissor %d,%d..%d,%d fbscissor %d..%d tris %u wide %d origin %u alpha %d tiles %u",
+                                         (proj.type == Projection::Type::Perspective) ? "persp" : "ortho",
+                                         int(call.callDesc.scissorRect.ulx), int(call.callDesc.scissorRect.uly), int(call.callDesc.scissorRect.lrx), int(call.callDesc.scissorRect.lry),
+                                         int(fbPair.scissorRect.ulx), int(fbPair.scissorRect.lrx), unsigned(std::min(call.callDesc.triangleCount, 64U)),
+-                                        int(useWideViewport), unsigned(viewportOrigin), int(alphaBlend));
++                                        int(useWideViewport), unsigned(viewportOrigin), int(alphaBlend), unsigned(call.callDesc.tileCount));
+                                     std::lock_guard<std::mutex> lock(s_triLogMutex);
+                                     if ((s_triSeen.size() < 5000) && s_triSeen.insert(line).second) {
+                                         std::fprintf(stderr, "%s\n", line);
+@@ -1730,8 +1730,10 @@ namespace RT64 {
+                                 // most 2 triangles drawn with the full-screen scissor on the main
+                                 // screen is widened back by the aspect ratio, so it fills the width.
+                                 const bool fullScissorCall = (call.callDesc.scissorRect.ulx <= fbPair.scissorRect.ulx) && (call.callDesc.scissorRect.lrx >= fbPair.scissorRect.lrx);
++                                // Plain colour only (no texture), so textured 2D quads such as
++                                // the end-of-battle graphic keep their shape.
+                                 const bool screenFadeQuad = (proj.type == Projection::Type::Orthographic) && alphaBlend && fullScissorCall &&
+-                                    (call.callDesc.triangleCount <= 2) && (p.fbWidth == 320) && (aspectRatioScale > 1.0f);
++                                    (call.callDesc.triangleCount <= 2) && (call.callDesc.tileCount == 0) && (p.fbWidth == 320) && (aspectRatioScale > 1.0f);
+                                 if (screenFadeQuad) {
+                                     const float wideWidth = triangles.viewport.width * aspectRatioScale;
+                                     triangles.viewport.x -= (wideWidth - triangles.viewport.width) / 2.0f;
+@@ -1779,7 +1781,10 @@ namespace RT64 {
+                             // slide in from the edges, so they start at the wide screen's edge and
+                             // then jump. (Requiring untextured rects broke other rects: reverted.)
+                             const bool wipeBand = ((fixedRect.lry - fixedRect.uly) == 96) && ((fixedRect.uly % 96) == 0);
+-                            const bool nearlyFullWidth = (fixedRect.lrx - fixedRect.ulx) * 10 >= (fbPair.scissorRect.lrx - fbPair.scissorRect.ulx) * 9;
++                            // Plain-colour only (no texture): the fades are; the end-of-battle
++                            // graphic is a picture nearly as wide, and stretched with them.
++                            const bool nearlyFullWidth = ((fixedRect.lrx - fixedRect.ulx) * 10 >= (fbPair.scissorRect.lrx - fbPair.scissorRect.ulx) * 9) &&
++                                (call.callDesc.tileCount == 0);
+                             const bool screenEdgeRect = regularOrigins && fullWidthScreen && ((reachesEdge && wipeBand) || nearlyFullWidth);
+                             // The wipe's final black screen is a 20x15 grid of 16x16 rects; the inner
+                             // ones reach no edge, so grid-aligned 16x16 rects count as well.
