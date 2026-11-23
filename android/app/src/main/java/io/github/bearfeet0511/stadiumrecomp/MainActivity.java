@@ -48,6 +48,12 @@ public class MainActivity extends SDLActivity {
         super.onCreate(savedInstanceState);
         java.io.File dir = getExternalFilesDir(null);
         if (dir != null) saveSync = new SaveSync.Watcher(this, dir, readConfig(dir));
+        // Ask Android for steady performance: between demanding moments the GPU
+        // clocks down, and a send-out then misses frames before it clocks back up.
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+        boolean sustained = pm != null && pm.isSustainedPerformanceModeSupported();
+        Log.i(TAG, "sustained performance mode supported: " + sustained);
+        if (sustained) getWindow().setSustainedPerformanceMode(true);
     }
 
     @Override

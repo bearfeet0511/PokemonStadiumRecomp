@@ -1,0 +1,80 @@
+diff --git a/src/hle/rt64_game_frame.cpp b/src/hle/rt64_game_frame.cpp
+index 209ff9b..7d8a0f0 100644
+--- a/src/hle/rt64_game_frame.cpp
++++ b/src/hle/rt64_game_frame.cpp
+@@ -221,6 +221,15 @@ namespace RT64 {
+     TransformMatchResult computeTransformMatch(const hlslpp::float4x4 &curTransform, const hlslpp::float4x4 &curViewProj, const hlslpp::float4x4 &prevTransform, const hlslpp::float4x4 &prevViewProj, const RigidBody *prevRigidBody) {
+         TransformMatchResult matchResult;
+ 
++        // PSR: PSR_INTERP_MODELS=0 blends only the camera: models are drawn as the
++        // game posed them (30 fps animation) while pans stay at 60 fps. Snapping some
++        // parts of a model and blending others split models (Slowbro, Dragonite seen
++        // through after a knockback); not blending models at all can't split them.
++        static const bool s_noModelInterp = (std::getenv("PSR_INTERP_MODELS") != nullptr) && (std::getenv("PSR_INTERP_MODELS")[0] == '0');
++        if (s_noModelInterp) {
++            return matchResult;
++        }
++
+         // Do not accept a match between these transforms if the determinant is different, which indicates they're mirrored from each other.
+         const float m0det = hlslpp::determinant(extract3x3(prevTransform));
+         const float m1det = hlslpp::determinant(extract3x3(curTransform));
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 6e729e6..ac609b2 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -10,8 +10,10 @@
+ 
+ #define ENABLE_HIGH_RESOLUTION_RENDERER 1
+ 
++#include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <cstdlib>
+ 
+ namespace RT64 {
+     // PSR: GPU time counters (see the timing around the workload's execute/wait).
+@@ -904,6 +906,24 @@ namespace RT64 {
+                 psrGpuFrames += 1;
+                 uint64_t prevMax = psrGpuWaitMaxUs.load();
+                 while ((us > prevMax) && !psrGpuWaitMaxUs.compare_exchange_weak(prevMax, us)) {}
++                // PSR: what's in a frame that misses the 60 fps budget (send-out hitches).
++                if (us > 16700) {
++                    uint32_t tileCopies = 0;
++                    for (const DrawCallTile &tile : workload.drawData.callTiles) {
++                        tileCopies += tile.tileCopyUsed ? 1 : 0;
++                    }
++                    uint32_t triangles = 0;
++                    for (uint32_t f = 0; f < workload.fbPairCount; f++) {
++                        for (uint32_t pr = 0; pr < workload.fbPairs[f].projectionCount; pr++) {
++                            const Projection &proj = workload.fbPairs[f].projections[pr];
++                            for (uint32_t c = 0; c < proj.gameCallCount; c++) {
++                                triangles += proj.gameCalls[c].callDesc.triangleCount;
++                            }
++                        }
++                    }
++                    std::fprintf(stderr, "[slow-frame] gpu %.1f ms: %u fb pairs, %u draws, %u triangles, %u tiles (%u from screen copies)\n",
++                        us / 1000.0, workload.fbPairCount, workload.gameCallCount, triangles, uint32_t(workload.drawData.callTiles.size()), tileCopies);
++                }
+             }
+             workerMutex.unlock();
+ 
+@@ -1264,10 +1284,18 @@ namespace RT64 {
+ 
+             if (threadsRunning) {
+                 if (workerMutex.try_lock()) {
++                    // PSR: PSR_RT64_IDLE_GROUPS sets how much idle work each dispatch does.
++                    // One empty group is too little to keep a phone GPU from clocking down
++                    // between demanding moments (send-outs then miss frames).
++                    static const uint32_t s_idleGroups = []() {
++                        const char *v = std::getenv("PSR_RT64_IDLE_GROUPS");
++                        const long n = (v != nullptr) ? std::atol(v) : 1;
++                        return uint32_t(std::clamp(n, 1L, 65535L));
++                    }();
+                     commandList->begin();
+                     commandList->setPipeline(idle.pipeline.get());
+                     commandList->setComputePipelineLayout(idle.pipelineLayout.get());
+-                    commandList->dispatch(1, 1, 1);
++                    commandList->dispatch(s_idleGroups, 1, 1);
+                     commandList->end();
+                     ext.workloadGraphicsWorker->execute();
+                     ext.workloadGraphicsWorker->wait();
