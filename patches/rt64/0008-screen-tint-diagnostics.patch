@@ -1,0 +1,99 @@
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index 217e6c1..0b06780 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1709,16 +1709,59 @@ namespace RT64 {
+                                 if (s_triLog && (p.fbWidth == 320)) {
+                                     static std::mutex s_triLogMutex;
+                                     static std::set<std::string> s_triSeen;
+-                                    char line[256];
+-                                    std::snprintf(line, sizeof(line), "[tri] %s scissor %d,%d..%d,%d fbscissor %d..%d tris %u wide %d origin %u alpha %d tiles %u",
++                                    // Screen extent (320x240 space) of small draws, so full-screen
++                                    // 3D effects (e.g. a tint quad) can be told apart; rounded to 32 px; see-through draws only.
++                                    int sx0 = 0, sy0 = 0, sx1 = 0, sy1 = 0;
++                                    if (alphaBlend && (call.callDesc.triangleCount <= 8)) {
++                                        float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
++                                        const uint32_t idxEnd = call.meshDesc.faceIndicesStart + call.callDesc.triangleCount * 3;
++                                        for (uint32_t i = call.meshDesc.faceIndicesStart; (i < idxEnd) && (i < drawData.faceIndices.size()); i++) {
++                                            const uint32_t v = drawData.faceIndices[i];
++                                            if (v >= drawData.posScreen.size()) continue;
++                                            const float x = float(drawData.posScreen[v][0]), y = float(drawData.posScreen[v][1]);
++                                            minX = std::min(minX, x); maxX = std::max(maxX, x);
++                                            minY = std::min(minY, y); maxY = std::max(maxY, y);
++                                        }
++                                        if (maxX >= minX) {
++                                            sx0 = int(minX) / 32 * 32; sy0 = int(minY) / 32 * 32; sx1 = int(maxX) / 32 * 32; sy1 = int(maxY) / 32 * 32;
++                                        }
++                                    }
++                                    char line[320];
++                                    std::snprintf(line, sizeof(line), "[tri] %s scissor %d,%d..%d,%d fbscissor %d..%d tris %u wide %d origin %u alpha %d tiles %u screen %d,%d..%d,%d",
+                                         (proj.type == Projection::Type::Perspective) ? "persp" : "ortho",
+                                         int(call.callDesc.scissorRect.ulx), int(call.callDesc.scissorRect.uly), int(call.callDesc.scissorRect.lrx), int(call.callDesc.scissorRect.lry),
+                                         int(fbPair.scissorRect.ulx), int(fbPair.scissorRect.lrx), unsigned(std::min(call.callDesc.triangleCount, 64U)),
+-                                        int(useWideViewport), unsigned(viewportOrigin), int(alphaBlend), unsigned(call.callDesc.tileCount));
++                                        int(useWideViewport), unsigned(viewportOrigin), int(alphaBlend), unsigned(call.callDesc.tileCount),
++                                        sx0, sy0, sx1, sy1);
++                                    // Any draw of up to 16 triangles whose corners sit around the
++                                    // 4:3 screen, whatever its blend mode: candidates for screen tints.
++                                    char quadLine[320] = {};
++                                    if (call.callDesc.triangleCount <= 16) {
++                                        float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
++                                        const uint32_t idxEnd = call.meshDesc.faceIndicesStart + call.callDesc.triangleCount * 3;
++                                        for (uint32_t i = call.meshDesc.faceIndicesStart; (i < idxEnd) && (i < drawData.faceIndices.size()); i++) {
++                                            const uint32_t v = drawData.faceIndices[i];
++                                            if (v >= drawData.posScreen.size()) continue;
++                                            const float x = float(drawData.posScreen[v][0]), y = float(drawData.posScreen[v][1]);
++                                            minX = std::min(minX, x); maxX = std::max(maxX, x);
++                                            minY = std::min(minY, y); maxY = std::max(maxY, y);
++                                        }
++                                        if ((minX <= 40.0f) && (minX >= -200.0f) && (maxX >= 280.0f) && (maxX <= 520.0f) &&
++                                            (minY <= 40.0f) && (minY >= -200.0f) && (maxY >= 200.0f) && (maxY <= 440.0f)) {
++                                            std::snprintf(quadLine, sizeof(quadLine), "[screenquad] %s tris %u alpha %d tiles %u cyc %u omL %08X omH %08X combine %08X%08X",
++                                                (proj.type == Projection::Type::Perspective) ? "persp" : "ortho", unsigned(call.callDesc.triangleCount),
++                                                int(alphaBlend), unsigned(call.callDesc.tileCount), unsigned(call.shaderDesc.otherMode.cycleType() >> 20),
++                                                unsigned(call.shaderDesc.otherMode.L), unsigned(call.shaderDesc.otherMode.H),
++                                                unsigned(call.shaderDesc.colorCombiner.L), unsigned(call.shaderDesc.colorCombiner.H));
++                                        }
++                                    }
+                                     std::lock_guard<std::mutex> lock(s_triLogMutex);
+-                                    if ((s_triSeen.size() < 5000) && s_triSeen.insert(line).second) {
++                                    if ((s_triSeen.size() < 20000) && s_triSeen.insert(line).second) {
+                                         std::fprintf(stderr, "%s\n", line);
+                                     }
++                                    if ((quadLine[0] != '\0') && (s_triSeen.size() < 30000) && s_triSeen.insert(quadLine).second) {
++                                        std::fprintf(stderr, "%s\n", quadLine);
++                                    }
+                                 }
+                             }
+                             if (useWideViewport) {
+@@ -1734,7 +1777,29 @@ namespace RT64 {
+                                 // the end-of-battle graphic keep their shape.
+                                 const bool screenFadeQuad = (proj.type == Projection::Type::Orthographic) && alphaBlend && fullScissorCall &&
+                                     (call.callDesc.triangleCount <= 2) && (call.callDesc.tileCount == 0) && (p.fbWidth == 320) && (aspectRatioScale > 1.0f);
+-                                if (screenFadeQuad) {
++                                // A see-through 3D quad in front of the camera that covers the
++                                // whole 4:3 view (Surf's blue water sheet; the move effects draw
++                                // screen tints this way) is widened the same way. Its corners must
++                                // be just around the 4:3 screen (320x240), so real 3D surfaces
++                                // (much larger) and small pieces (foam, sparks) don't match.
++                                bool screenTintQuad = false;
++                                // Tabled 2026-11-25: on the Thor it did not widen Surf's blue square (see STADIUM.md), so it is opt-in.
++                                static const bool s_tintRule = (std::getenv("PSR_TINT_RULE") != nullptr);
++                                if (s_tintRule && (proj.type == Projection::Type::Perspective) && alphaBlend && fullScissorCall &&
++                                    (call.callDesc.triangleCount <= 4) && (p.fbWidth == 320) && (aspectRatioScale > 1.0f)) {
++                                    float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
++                                    const uint32_t idxEnd = call.meshDesc.faceIndicesStart + call.callDesc.triangleCount * 3;
++                                    for (uint32_t i = call.meshDesc.faceIndicesStart; (i < idxEnd) && (i < drawData.faceIndices.size()); i++) {
++                                        const uint32_t v = drawData.faceIndices[i];
++                                        if (v >= drawData.posScreen.size()) continue;
++                                        const float x = float(drawData.posScreen[v][0]), y = float(drawData.posScreen[v][1]);
++                                        minX = std::min(minX, x); maxX = std::max(maxX, x);
++                                        minY = std::min(minY, y); maxY = std::max(maxY, y);
++                                    }
++                                    screenTintQuad = (minX <= 40.0f) && (minX >= -200.0f) && (maxX >= 280.0f) && (maxX <= 520.0f) &&
++                                                     (minY <= 40.0f) && (minY >= -200.0f) && (maxY >= 200.0f) && (maxY <= 440.0f);
++                                }
++                                if (screenFadeQuad || screenTintQuad) {
+                                     const float wideWidth = triangles.viewport.width * aspectRatioScale;
+                                     triangles.viewport.x -= (wideWidth - triangles.viewport.width) / 2.0f;
+                                     triangles.viewport.width = wideWidth;
