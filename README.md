@@ -19,7 +19,8 @@ No ROMs or game assets are included. Bring your own Pokémon Stadium (US v1.0) R
 - **Gen1Recomp saves** (Windows for now). Use a [Gen1Recomp](https://github.com/bryanthaboi/gen1recomp) save slot as a cart; changes are merged back, keeping mod data such as nuzlocke tracking.
 - **Smooth battles.** A renderer fix keeps send-outs, moves and camera pans from dropping frames, even on handhelds.
 - **Widescreen battles** (experimental). Menus stay 4:3.
-- **60 fps** (experimental). In-between frames while the game runs at its normal speed.
+- **60 fps** (experimental). In-between frames while the game runs at its normal speed. On the AYN Thor, use Performance mode for smooth send-outs.
+- **Español / Français.** Game text in Spanish or French, read from your own copy of that version of Stadium (the game still runs from your US ROM). With Español chosen, the launchers and the battle panel are in Spanish too.
 - **Save safety.** Automatic backups every session; on Android, saves can also be copied to a folder of your choice that survives uninstalling.
 - **Updates in the app.** The launcher on both platforms tells you when a new build is out and installs it without touching your saves.
 - **Online play** (testing, Windows for now). Netplay builds are in the test releases.
@@ -33,12 +34,13 @@ Features land on one platform first and are meant to reach both.
 2. Run `PokemonStadiumRecomp.exe`. The launcher asks for your Pokémon Stadium ROM the first time (`.z64`, `.n64` or `.v64`).
 3. Optionally give each player a Game Boy cart (ROM + save) and a controller, then press **Play**.
 
-Settings live in `launcher.cfg` next to the exe. `aspect_ratio=widescreen` and `framerate=60` turn on the experimental options.
+Widescreen battles, 60 fps and the language are in the launcher's **Settings**. They are saved in `launcher.cfg` next to the exe.
 
 ### Android
 1. Download `StadiumRecomp-android-….apk` from [Releases](https://github.com/bearfeet0511/PokemonStadiumRecomp/releases) and install it (allow installs from your browser or file manager when asked).
 2. Open **Stadium Recomp** and choose your Stadium ROM. For the Transfer Pak, choose a Game Boy ROM and its `.sav` per player. The save stays linked: Stadium's changes are written straight back to that file, and changes you make in your Game Boy emulator are picked up next time you press Play.
 3. Recommended: **Choose backup folder**, for example Documents.
+   For Spanish or French text, tap **Language** and choose your Spanish or French Pokémon Stadium ROM.
 4. Press **Play**. In the launcher, use the D-pad to move, A to select, B to close and Start to play.
 
 Keep your `.sav` in a normal folder such as Documents or Download: since Android 11, apps can't open files inside another app's private `Android/data` folder. To update, use the in-app update or install the new APK over the old one. **Don't uninstall to update:** uninstalling deletes the app's folder, including saves you haven't backed up.
@@ -64,8 +66,9 @@ Stadium only accepts a Red/Blue/Yellow save that was made inside a Pokémon Cent
 
 ## Known issues
 
-- Widescreen: trainer name boxes start at the screen edge and jump into place as they slide in, and Surf's blue tint only covers the middle 4:3 area. The team-confirm screen's fade stays 4:3; menus are 4:3 on purpose.
-- 60 fps: fast motion can glitch for a single frame.
+- Widescreen: trainer name boxes start at the screen edge and jump into place as they slide in, and some full-screen move effects (Surf's blue tint, Stun Spore and others) stop short of the screen edges. The team-confirm screen's fade stays 4:3; menus are 4:3 on purpose.
+- 60 fps: some Pokémon look see-through or split for a moment when they move quickly (seen on Slowbro, Dragonite, Gastly).
+- Español / Français: only the text changes; menu graphics with words on them and the announcer stay English.
 - Android: GB Tower takes about 50 seconds to load and its picture is off-centre.
 - Inherited from upstream: see [`ISSUES.md`](ISSUES.md).
 
@@ -93,6 +96,7 @@ SS Anne was created by mstan, who stopped maintaining it in August 2026 and welc
 - [N64Recomp](https://github.com/N64Recomp/N64Recomp), N64ModernRuntime and [RT64](https://github.com/rt64/rt64), the recompilation toolchain and renderer.
 - [pret/pokestadium](https://github.com/pret/pokestadium) and [pret/pokered](https://github.com/pret/pokered) disassemblies.
 - [Goemon64Recomp-Android](https://github.com/ogdanimal/Goemon64Recomp-Android), whose Android work showed the way for RT64 on Android.
+- The unofficial Pokémon Stadium port for New 3DS by @dave_schobert, whose language support and Transfer Pak write-back design this fork follows.
 - Gen1Recomp save support uses code from BOIS CLUB GAMES, LLC's [Pokemon Gen 1 Recompilation Project](https://github.com/bryanthaboi/gen1recomp) (GPLv3 with additional terms; its license ships in `gen1recomp\LICENSE.MD`).
 - [SDL2](https://www.libsdl.org/), and [LuaJIT](https://luajit.org/), which runs the save converter.
 
