@@ -1,5 +1,5 @@
 diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
-index 8e183e0..6d08a41 100644
+index 8e183e0..2a5aeda 100644
 --- a/src/common/backends/imgui/launcher_imgui.cpp
 +++ b/src/common/backends/imgui/launcher_imgui.cpp
 @@ -60,6 +60,36 @@
@@ -63,17 +63,58 @@ index 8e183e0..6d08a41 100644
      float x0 = ImGui::GetCursorPosX();
      ImGui::AlignTextToFramePadding();
      ImGui::TextColored(col(th.text_muted), "%s", text);
-@@ -660,8 +693,8 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
+@@ -659,9 +692,9 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
+     } else {
          const bool verified = launcher_model_rom_verified(m);
          char line[64];
-         if (!m->rom_present)   snprintf(line, sizeof(line), "No %s loaded", noun);
+-        if (!m->rom_present)   snprintf(line, sizeof(line), "No %s loaded", noun);
 -        else if (verified)     snprintf(line, sizeof(line), "%s verified", noun);
 -        else                   snprintf(line, sizeof(line), "%s not recognized", noun);
++        if (!m->rom_present)   snprintf(line, sizeof(line), tr_text("No %s loaded"), noun);
 +        else if (verified)     snprintf(line, sizeof(line), tr_text("%s verified"), noun);
 +        else                   snprintf(line, sizeof(line), tr_text("%s not recognized"), noun);
          float w = ImGui::GetTextLineHeight() + px(6) + ImGui::CalcTextSize(line).x;
          ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availw - w) * 0.5f);
          state_mark(verified, th);
+@@ -687,7 +720,7 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
+     }
+     ImGui::Dummy(ImVec2(0, px(12)));
+     char change_label[32];
+-    snprintf(change_label, sizeof(change_label), "Change %s", noun);
++    snprintf(change_label, sizeof(change_label), tr_text("Change %s"), noun);
+     if (ImGui::Button(change_label, ImVec2(availw, px(34)))) {
+         // Native file dialog filter comes from the active console's
+         // SystemProfile.rom_filter — never a hardcoded SNES set. Falls back
+@@ -1116,7 +1149,7 @@ static int g_tpak_modal_slot = -1;
+ // short strip of carts instead of tall cards that push the layout into a
+ // scroll.
+ void draw_tpak_tile(LauncherModel* m, const LauncherTheme& th, int slot) {
+-    char eb[24]; snprintf(eb, sizeof(eb), "TRANSFER PAK %d", slot + 1);
++    char eb[24]; snprintf(eb, sizeof(eb), tr_text("TRANSFER PAK %d"), slot + 1);
+     eyebrow(eb);
+ 
+     const bool has_cart  = m->s.tpak_rom_path[slot][0] != '\0';
+@@ -1201,9 +1234,9 @@ void draw_tpak_modal(LauncherModel* m, const LauncherTheme& th) {
+         char line[80];
+         if (inspected && info->trainer_name[0]) {
+             if (info->trainer_id[0])
+-                snprintf(line, sizeof(line), "Trainer %s  \xC2\xB7  ID %s",
++                snprintf(line, sizeof(line), tr_text("Trainer %s  \xC2\xB7  ID %s"),
+                          info->trainer_name, info->trainer_id);
+-            else snprintf(line, sizeof(line), "Trainer %s", info->trainer_name);
++            else snprintf(line, sizeof(line), tr_text("Trainer %s"), info->trainer_name);
+         } else snprintf(line, sizeof(line), "No save data");
+         centered(ImGui::GetColorU32(col(th.text_muted)), line);
+     }
+@@ -1439,7 +1472,7 @@ void draw_source_selectables(LauncherModel* m, int p) {
+ 
+ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w) {
+     char id[24];  snprintf(id, sizeof(id), "player%d", p);
+-    char eb[16];  snprintf(eb, sizeof(eb), "PLAYER %d", p + 1);
++    char eb[16];  snprintf(eb, sizeof(eb), tr_text("PLAYER %d"), p + 1);
+ 
+     if (!begin_panel(id, w, false)) { end_panel(); return; }
+     ImGui::PushID(p);
 @@ -1489,7 +1522,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
          if (ImGui::Button("Configure", ImVec2(half, btnh))) launcher_model_open_config(m, p);
          ImGui::SameLine(0, gap);

@@ -225,6 +225,12 @@ public class LauncherActivity extends Activity {
         writeConfig();
         setContentView(buildUi());
         refresh();
+        // The game text needs that version's ROM: ask for it straight away.
+        if (!"en".equals(next) && cfg.get("language_rom") == null) {
+            say("es".equals(next) ? tr("Choose your Spanish Pokémon Stadium ROM.", "Elige tu ROM española de Pokémon Stadium.")
+                    : tr("Choose your French Pokémon Stadium ROM.", "Elige tu ROM francesa de Pokémon Stadium."));
+            pick(PICK_LANG_ROM);
+        }
     }
 
     private TextView text(String s, float sp, int color, boolean bold) {

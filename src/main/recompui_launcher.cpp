@@ -105,6 +105,7 @@ const char* translate_launcher(const char* en, int language_index) {
         {"PLAY", "JUGAR"}, {"Settings", "Ajustes"}, {"< Back", "< Volver"},
         {"GAME", "JUEGO"}, {"Region", "Regi\xC3\xB3n"}, {"File", "Archivo"}, {"USA", "EE. UU."},
         {"%s verified", "%s verificada"}, {"%s not recognized", "%s no reconocida"},
+        {"No %s loaded", "Sin %s cargada"}, {"Change %s", "Cambiar %s"},
         {"Update available", "Actualizaci\xC3\xB3n disponible"}, {"Update", "Actualizar"},
         {"Release page", "P\xC3\xA1gina de la versi\xC3\xB3n"},
         // Controllers
