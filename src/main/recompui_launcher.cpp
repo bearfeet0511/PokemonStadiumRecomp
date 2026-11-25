@@ -25,6 +25,7 @@
 #include <iterator>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <SDL.h>
@@ -93,6 +94,86 @@ char gen1_char(uint8_t b) {
     if (b >= 0xF6 && b <= 0xFF) return static_cast<char>('0' + (b - 0xF6));
     if (b == 0x7F) return ' ';
     return '\0'; // unknown -> drop
+}
+
+// GameInfo.translate: the launcher's text in Spanish (language_index 1). French
+// players get French game text, but the launcher stays English for now.
+const char* translate_launcher(const char* en, int language_index) {
+    if (language_index != 1 || en == nullptr) return nullptr;
+    static const std::unordered_map<std::string, const char*> kSpanish = {
+        // Dashboard and navigation
+        {"PLAY", "JUGAR"}, {"Settings", "Ajustes"}, {"< Back", "< Volver"},
+        {"GAME", "JUEGO"}, {"Region", "Regi\xC3\xB3n"}, {"File", "Archivo"}, {"USA", "EE. UU."},
+        {"%s verified", "%s verificada"}, {"%s not recognized", "%s no reconocida"},
+        {"Update available", "Actualizaci\xC3\xB3n disponible"}, {"Update", "Actualizar"},
+        {"Release page", "P\xC3\xA1gina de la versi\xC3\xB3n"},
+        // Controllers
+        {"PLAYER %d", "JUGADOR %d"}, {"PLAYER 1", "JUGADOR 1"},
+        {"CONTROLLER - PLAYER %d", "MANDO - JUGADOR %d"},
+        {"Input source", "Entrada"}, {"None", "Ninguno"}, {"Keyboard", "Teclado"},
+        {"Gamepad", "Mando"}, {"Controller", "Mando"}, {"Configure", "Configurar"},
+        {"connected", "conectado"}, {"not assigned", "sin asignar"},
+        {"(no gamepad connected)", "(no hay ning\xC3\xBAn mando conectado)"},
+        {"Deadzone", "Zona muerta"}, {"Analog", "Anal\xC3\xB3gico"}, {"D-Pad", "Cruceta"},
+        {"INPUT BINDINGS - PLAYER %d", "CONTROLES - JUGADOR %d"},
+        {"KEYBOARD BINDINGS - PLAYER %d", "TECLAS - JUGADOR %d"},
+        {"CONTROLLER BINDINGS", "BOTONES DEL MANDO"},
+        {"Set key", "Asignar tecla"}, {"Set pad", "Asignar bot\xC3\xB3n"},
+        {"Listening... (Esc cancels)", "Esperando... (Esc cancela)"},
+        {"[ press a key... ]", "[ pulsa una tecla... ]"}, {"[ press a button... ]", "[ pulsa un bot\xC3\xB3n... ]"},
+        {"[ press a key / pad... ]", "[ pulsa una tecla o bot\xC3\xB3n... ]"}, {"[ press... ]", "[ pulsa... ]"},
+        {"(unbound)", "(sin asignar)"}, {"Reset to Defaults", "Restablecer"},
+        {"Clear", "Borrar"}, {"Done", "Hecho"}, {"Cancel", "Cancelar"}, {"OK", "Aceptar"},
+        {"Save", "Guardar"}, {"Edit", "Editar"}, {"New", "Nueva"}, {"Import", "Importar"},
+        {"Use default", "Predeterminado"},
+        // Transfer Pak
+        {"Transfer Pak", "Transfer Pak"}, {"TRANSFER PAK  \xC2\xB7  PORT %d", "TRANSFER PAK  \xC2\xB7  PUERTO %d"},
+        {"TRANSFER PAK %d", "TRANSFER PAK %d"},
+        {"No cartridge inserted", "Sin cartucho"}, {"Insert cartridge...", "Insertar cartucho..."},
+        {"Insert...", "Insertar..."}, {"Change cartridge...", "Cambiar cartucho..."},
+        {"Remove cartridge", "Quitar cartucho"}, {"Battery save", "Partida"},
+        {"Browse save...", "Buscar partida..."}, {"Default (runtime chooses)", "Predeterminada"},
+        {"Trainer %s  \xC2\xB7  ID %s", "Entrenador %s  \xC2\xB7  ID %s"}, {"Trainer %s", "Entrenador %s"},
+        {"No save data", "Sin datos guardados"}, {"no save yet", "a\xC3\xBAn sin partida"}, {"Empty", "Vac\xC3\xADo"},
+        {"SAVES", "PARTIDAS"},
+        // Display
+        {"DISPLAY", "PANTALLA"}, {"Renderer", "Renderizador"}, {"Auto", "Autom\xC3\xA1tico"},
+        {"Supersampling", "Supermuestreo"}, {"Antialiasing", "Antialiasing"},
+        {"Fullscreen", "Pantalla completa"}, {"Window size", "Tama\xC3\xB1o de ventana"},
+        {"Window scale", "Escala de ventana"}, {"Off", "No"},
+        {"Aspect ratio", "Relaci\xC3\xB3n de aspecto"}, {"4:3 (Original)", "4:3 (original)"},
+        {"Widescreen battles", "Combates en panor\xC3\xA1mico"}, {"EXPERIMENTAL", "EXPERIMENTAL"},
+        {"60 fps", "60 fps"}, {"Texture filtering", "Filtrado de texturas"},
+        // Audio and language
+        {"AUDIO", "AUDIO"}, {"Volume", "Volumen"}, {"Enabled", "Activado"},
+        {"Output device", "Dispositivo de salida"}, {"(system default)", "(predeterminado del sistema)"},
+        {"Sample rate", "Frecuencia de muestreo"},
+        {"LOCALIZATION", "IDIOMA"}, {"Language", "Idioma"}, {"Stadium ROM", "ROM de Stadium"},
+        {"(none chosen)", "(sin elegir)"}, {"Browse", "Examinar"},
+        // Online play
+        {"ONLINE PLAY", "JUEGO EN L\xC3\x8DNEA"}, {"Host", "Crear"}, {"Join", "Unirse"},
+        {"Port", "Puerto"}, {"Players", "Jugadores"}, {"Password", "Contrase\xC3\xB1" "a"},
+        {"Check for updates", "Buscar actualizaciones"},
+        {"Host's address, e.g. 203.0.113.5", "Direcci\xC3\xB3n del anfitri\xC3\xB3n, p. ej. 203.0.113.5"},
+        {"Play friends over the internet: one player hosts, up to three join.",
+         "Juega con amigos por internet: uno crea la partida y hasta tres se unen."},
+        {"You're player 1. Forward TCP port %d on your router to this PC, then give "
+         "the others your public IP address. Press Play to wait for them; the game "
+         "starts when %d players are in.",
+         "Eres el jugador 1. Redirige el puerto TCP %d de tu router a este PC y da tu IP "
+         "p\xC3\xBA" "blica a los dem\xC3\xA1s. Pulsa Jugar para esperarlos; la partida empieza "
+         "cuando haya %d jugadores."},
+        {"Enter the host's public IP address and press Play. Players get numbers "
+         "2-4 in the order they join. Everyone needs the same version.",
+         "Escribe la IP p\xC3\xBA" "blica del anfitri\xC3\xB3n y pulsa Jugar. Los jugadores reciben los "
+         "n\xC3\xBA" "meros 2 a 4 seg\xC3\xBA" "n se unen. Todos necesit\xC3\xA1is la misma versi\xC3\xB3n."},
+        {"Transfer Pak carts stay unplugged in online games for now; use rentals.",
+         "Por ahora los cartuchos del Transfer Pak no se usan en l\xC3\xAD" "nea; usa Pok\xC3\xA9mon de alquiler."},
+        // Skip-launcher option
+        {"Skip launcher on boot", "Saltar el lanzador al iniciar"}, {"Skip on Boot", "Saltar al iniciar"},
+    };
+    const auto it = kSpanish.find(en);
+    return it == kSpanish.end() ? nullptr : it->second;
 }
 
 // GameInfo.tpak_inspect callback: the HOST's cartridge brain. Sniffs the GB
@@ -426,6 +507,7 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     gi.language_labels    = kLanguages;
     gi.num_languages      = 3;
     gi.language_rom_label = "Stadium ROM";
+    gi.translate          = &translate_launcher;
 
     // The rebind page edits PSR's own input.cfg (next to the exe) — the same
     // file pkmnstadium::input reads; recomp-ui's n64_binds.c replicates its

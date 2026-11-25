@@ -1,0 +1,133 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index 8e183e0..6d08a41 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -60,6 +60,36 @@
+ 
+ #include <cstring>
+ #include <string>
++#include <unordered_map>
++
++// ---- Launcher text in the player's language (GameInfo.translate) ----------
++// The text passed to the ImGui calls below goes through tr_text, which asks the
++// host for a translation of the part before any "##id" suffix and keeps the
++// suffix, so widget IDs stay stable. Popup names are IDs and stay English.
++static const LauncherModel* g_tr_model = nullptr;
++static const char* tr_text(const char* s) {
++    const LauncherModel* m = g_tr_model;
++    if (s == nullptr || m == nullptr || m->translate == nullptr || m->s.language_index <= 0) return s;
++    const char* hash = std::strstr(s, "##");
++    const std::string key = hash ? std::string(s, size_t(hash - s)) : std::string(s);
++    if (key.empty()) return s;
++    const char* t = m->translate(key.c_str(), m->s.language_index);
++    if (t == nullptr || t == s) return s;
++    if (hash == nullptr) return t;
++    static std::unordered_map<std::string, std::string> with_ids; // nodes keep c_str() stable
++    std::string& slot = with_ids[std::string(t) + hash];
++    if (slot.empty()) slot = std::string(t) + hash;
++    return slot.c_str();
++}
++#define Button(label, ...) Button(tr_text(label), ##__VA_ARGS__)
++#define Checkbox(label, ...) Checkbox(tr_text(label), ##__VA_ARGS__)
++#define Selectable(label, ...) Selectable(tr_text(label), ##__VA_ARGS__)
++#define Text(fmt, ...) Text(tr_text(fmt), ##__VA_ARGS__)
++#define TextColored(c, fmt, ...) TextColored(c, tr_text(fmt), ##__VA_ARGS__)
++#define TextWrapped(fmt, ...) TextWrapped(tr_text(fmt), ##__VA_ARGS__)
++#define TextDisabled(fmt, ...) TextDisabled(tr_text(fmt), ##__VA_ARGS__)
++#define SetTooltip(fmt, ...) SetTooltip(tr_text(fmt), ##__VA_ARGS__)
++#define TextUnformatted(text) TextUnformatted(tr_text(text))
+ 
+ extern "C" const char* launcher_backend_name(void) { return "Dear ImGui"; }
+ 
+@@ -281,6 +311,7 @@ void draw_dot(bool on, const LngColor& good, const LngColor& off) {
+ // The primary neon CTA (PLAY): glow + violet gradient + play triangle. Fully
+ // custom-drawn over an InvisibleButton so it looks nothing like a stock button.
+ bool neon_cta(const char* id, const char* label, ImVec2 size) {
++    label = tr_text(label);
+     const LauncherTheme& th = *g_th;
+     ImVec2 p = ImGui::GetCursorScreenPos();
+     // EnableNav is REQUIRED: ImGui::InvisibleButton() adds ImGuiItemFlags_NoNav by
+@@ -323,6 +354,7 @@ bool neon_cta(const char* id, const char* label, ImVec2 size) {
+ // Uppercase section eyebrow with letter-spacing + a short accent tick, e.g.
+ //   ▎ CONTROLLERS   — encodes "this is a section header", arcade panel style.
+ void eyebrow_tracked(const char* s) {
++    s = tr_text(s);
+     const LauncherTheme& th = *g_th;
+     ImDrawList* dl = ImGui::GetWindowDrawList();
+     ImVec2 p = ImGui::GetCursorScreenPos();
+@@ -480,6 +512,7 @@ void ws_cells_stepper(const char* id, LauncherModel* m, int* out_delta) {
+ // the controls up into a clean grid. col_w == 0 keeps the legacy flow layout
+ // (control hugs the label with a fixed gap).
+ void row_label(const char* text, const LauncherTheme& th, float col_w = 0.0f) {
++    text = tr_text(text);
+     float x0 = ImGui::GetCursorPosX();
+     ImGui::AlignTextToFramePadding();
+     ImGui::TextColored(col(th.text_muted), "%s", text);
+@@ -660,8 +693,8 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
+         const bool verified = launcher_model_rom_verified(m);
+         char line[64];
+         if (!m->rom_present)   snprintf(line, sizeof(line), "No %s loaded", noun);
+-        else if (verified)     snprintf(line, sizeof(line), "%s verified", noun);
+-        else                   snprintf(line, sizeof(line), "%s not recognized", noun);
++        else if (verified)     snprintf(line, sizeof(line), tr_text("%s verified"), noun);
++        else                   snprintf(line, sizeof(line), tr_text("%s not recognized"), noun);
+         float w = ImGui::GetTextLineHeight() + px(6) + ImGui::CalcTextSize(line).x;
+         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availw - w) * 0.5f);
+         state_mark(verified, th);
+@@ -1489,7 +1522,7 @@ void draw_player_panel(LauncherModel* m, const LauncherTheme& th, int p, float w
+         if (ImGui::Button("Configure", ImVec2(half, btnh))) launcher_model_open_config(m, p);
+         ImGui::SameLine(0, gap);
+         const bool on = m->s.player_src[p] != 0;
+-        const char* st = on ? "connected" : "not assigned";
++        const char* st = tr_text(on ? "connected" : "not assigned");
+         const float sw = px(10) + px(8) + ImGui::CalcTextSize(st).x;
+         // center the dot+label within the right half, vertically on the button
+         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (half - sw) * 0.5f);
+@@ -2589,6 +2622,7 @@ void draw_skip_modal(LauncherModel* m) {
+ }
+ 
+ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logical_h) {
++    g_tr_model = m;
+     ImGuiViewport* vp = ImGui::GetMainViewport();
+     ImGui::SetNextWindowPos(vp->Pos);
+     ImGui::SetNextWindowSize(vp->Size);
+diff --git a/src/common/launcher_model.c b/src/common/launcher_model.c
+index c366157..26f69cd 100644
+--- a/src/common/launcher_model.c
++++ b/src/common/launcher_model.c
+@@ -128,6 +128,7 @@ void launcher_model_init(LauncherModel* m,
+         m->frame_interp_label   = game->frame_interp_label;
+         m->frame_interp_experimental = game->frame_interp_experimental != 0;
+         m->language_rom_label   = game->language_rom_label;
++        m->translate            = game->translate;
+         m->adaptive_view_supported = game->adaptive_view_supported != 0;
+         m->tpak_slots           = clampi(game->tpak_slots, 0, RECOMP_LAUNCHER_MAX_TPAKS);
+         m->tpak_inspect_cb      = game->tpak_inspect;
+diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
+index fe39edd..b6f4ac2 100644
+--- a/src/common/launcher_model.h
++++ b/src/common/launcher_model.h
+@@ -207,6 +207,7 @@ typedef struct {
+     const char* frame_interp_label;   // GameInfo.frame_interp_label
+     bool frame_interp_experimental;
+     const char* language_rom_label;   // GameInfo.language_rom_label
++    const char* (*translate)(const char* english, int language_index); // GameInfo.translate
+     bool adaptive_view_supported;
+     // Number of players the GAME actually supports. Mega Man X is 1-player, so
+     // the launcher must not show a dead Player 2 row. Games that support 2
+diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
+index 1a1a461..8734ed6 100644
+--- a/src/recomp_launcher.h
++++ b/src/recomp_launcher.h
+@@ -373,6 +373,11 @@ typedef struct RecompLauncherCGameInfo {
+     // label under Language (e.g. "Spanish ROM"); the pick is stored in
+     // Settings.bios_path, which such games use for nothing else.
+     const char* language_rom_label;
++
++    // Optional: translates the launcher's own English text for the language
++    // picked in Settings (language_index > 0). Return NULL or the input to keep
++    // English. The returned pointer must stay valid (e.g. a static table).
++    const char* (*translate)(const char* english, int language_index);
+ } RecompLauncherCGameInfo;
+ 
+ // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),

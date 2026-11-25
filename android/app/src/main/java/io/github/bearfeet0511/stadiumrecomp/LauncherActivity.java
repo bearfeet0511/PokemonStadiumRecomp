@@ -58,6 +58,7 @@ public class LauncherActivity extends Activity {
     private static final int PICK_SAVE = 20;   // + player index
     private static final int EXPORT_SAVE = 30; // + player index
     private static final int PICK_BACKUP_DIR = 40;
+    private static final int PICK_LANG_ROM = 50;
 
     // GitHub releases of this fork; Android builds are attached as
     // StadiumRecomp-android-<versionName>-<versionCode>.apk.
@@ -73,7 +74,7 @@ public class LauncherActivity extends Activity {
     private final TextView[] cartStatus = new TextView[2];
     private final TextView[] saveStatus = new TextView[2];
     private Button playButton, updateButton;
-    private TextView backupStatus;
+    private TextView backupStatus, langStatus;
     private BattlePanel panel;
     private boolean busy;
     private String updateUrl, updateName;
@@ -83,6 +84,7 @@ public class LauncherActivity extends Activity {
         super.onCreate(savedInstanceState);
         dir = getExternalFilesDir(null);
         readConfig();
+        Lang.set(cfg.get("language"));
         setContentView(buildUi());
         refresh();
         new Thread(this::backupSaves).start();
@@ -128,50 +130,62 @@ public class LauncherActivity extends Activity {
 
         TextView title = text("Stadium Recomp", 26, Color.WHITE, true);
         column.addView(title);
-        column.addView(text("Version " + versionName(), 13, Color.rgb(150, 160, 185), false));
+        column.addView(text(tr("Version ", "Versión ") + versionName(), 13, Color.rgb(150, 160, 185), false));
         updateButton = button("", v -> startUpdate());
         updateButton.setVisibility(View.GONE);
         updateButton.setBackground(stateBackground(Color.rgb(40, 140, 70), Color.rgb(60, 180, 90)));
         column.addView(updateButton);
 
-        column.addView(header("Game"));
+        column.addView(header(tr("Game", "Juego")));
         romStatus = text("", 15, Color.rgb(200, 206, 222), false);
         column.addView(romStatus);
-        column.addView(button("Choose Pokémon Stadium ROM (US v1.0)", v -> pick(PICK_ROM)));
+        column.addView(button(tr("Choose Pokémon Stadium ROM (US v1.0)", "Elegir ROM de Pokémon Stadium (EE. UU. v1.0)"), v -> pick(PICK_ROM)));
 
         for (int p = 0; p < 2; p++) {
             final int player = p;
-            column.addView(header("Transfer Pak – Player " + (p + 1)));
+            column.addView(header(tr("Transfer Pak – Player ", "Transfer Pak – Jugador ") + (p + 1)));
             cartStatus[p] = text("", 15, Color.rgb(200, 206, 222), false);
             column.addView(cartStatus[p]);
             LinearLayout cartRow = row();
-            cartRow.addView(button("Choose Game Boy ROM", v -> pick(PICK_CART + player)), weight());
-            cartRow.addView(button("Remove cart", v -> removeCart(player)), weight());
+            cartRow.addView(button(tr("Choose Game Boy ROM", "Elegir ROM de Game Boy"), v -> pick(PICK_CART + player)), weight());
+            cartRow.addView(button(tr("Remove cart", "Quitar cartucho"), v -> removeCart(player)), weight());
             column.addView(cartRow);
             saveStatus[p] = text("", 15, Color.rgb(200, 206, 222), false);
             column.addView(saveStatus[p]);
-            column.addView(button("Choose save (.sav)", v -> pick(PICK_SAVE + player)));
+            column.addView(button(tr("Choose save (.sav)", "Elegir partida (.sav)"), v -> pick(PICK_SAVE + player)));
         }
 
-        column.addView(header("Settings"));
-        column.addView(toggle("Widescreen battles (experimental)", "Menus stay 4:3; a few battle effects may not fill the screen yet",
+        column.addView(header(tr("Language", "Idioma")));
+        column.addView(button(tr("Language: ", "Idioma: ") + languageName(cfg.get("language")), v -> cycleLanguage()));
+        langStatus = text("", 15, Color.rgb(200, 206, 222), false);
+        column.addView(langStatus);
+        column.addView(button(tr("Choose the Spanish or French Pokémon Stadium ROM", "Elegir la ROM española o francesa de Pokémon Stadium"),
+                v -> pick(PICK_LANG_ROM)));
+
+        column.addView(header(tr("Settings", "Ajustes")));
+        column.addView(toggle(tr("Widescreen battles (experimental)", "Combates en panorámico (experimental)"),
+                tr("Menus stay 4:3; a few battle effects may not fill the screen yet", "Los menús siguen en 4:3; algunos efectos aún no ocupan toda la pantalla"),
                 "widescreen".equals(cfg.get("aspect_ratio")),
                 (b, on) -> cfg.put("aspect_ratio", on ? "widescreen" : "original")));
-        column.addView(toggle("60 fps (experimental)", "Adds in-between frames; brief glitches on fast motion",
+        column.addView(toggle(tr("60 fps (experimental)", "60 fps (experimental)"),
+                tr("Adds in-between frames; brief glitches on fast motion", "Añade fotogramas intermedios; fallos breves en movimientos rápidos"),
                 "60".equals(cfg.get("framerate")),
                 (b, on) -> cfg.put("framerate", on ? "60" : "30")));
-        column.addView(toggle("Battle panel (dual-screen devices)", "Moves, team and tap controls on the second screen, e.g. the AYN Thor's bottom screen",
+        column.addView(toggle(tr("Battle panel (dual-screen devices)", "Panel de combate (dispositivos de doble pantalla)"),
+                tr("Moves, team and tap controls on the second screen, e.g. the AYN Thor's bottom screen",
+                        "Movimientos, equipo y controles táctiles en la segunda pantalla, como la inferior de la AYN Thor"),
                 !"off".equals(cfg.get("bottom_screen")),
                 (b, on) -> cfg.put("bottom_screen", on ? "on" : "off")));
 
-        column.addView(toggle("Check for updates", "Looks for a newer build on GitHub when the launcher opens",
+        column.addView(toggle(tr("Check for updates", "Buscar actualizaciones"),
+                tr("Looks for a newer build on GitHub when the launcher opens", "Busca una versión nueva en GitHub al abrir el lanzador"),
                 !"off".equals(cfg.get("check_updates")),
                 (b, on) -> cfg.put("check_updates", on ? "on" : "off")));
 
-        column.addView(header("Save backups"));
+        column.addView(header(tr("Save backups", "Copias de seguridad")));
         backupStatus = text("", 15, Color.rgb(200, 206, 222), false);
         column.addView(backupStatus);
-        column.addView(button("Choose backup folder", v -> {
+        column.addView(button(tr("Choose backup folder", "Elegir carpeta de copias"), v -> {
             if (busy) return;
             startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PICK_BACKUP_DIR);
         }));
@@ -180,12 +194,37 @@ public class LauncherActivity extends Activity {
         message.setPadding(0, dp(12), 0, 0);
         column.addView(message);
 
-        playButton = button("Play", v -> play());
+        playButton = button(tr("Play", "Jugar"), v -> play());
         playButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64));
         lp.topMargin = dp(16);
         column.addView(playButton, lp);
         return scroll;
+    }
+
+    private static String tr(String english, String spanish) {
+        return Lang.tr(english, spanish);
+    }
+
+    private static String languageName(String code) {
+        if ("es".equals(code)) return "Español";
+        if ("fr".equals(code)) return "Français";
+        return "English";
+    }
+
+    /** English -> Español -> Français; rebuilds the screen in the new language. */
+    private void cycleLanguage() {
+        if (busy) return;
+        String code = cfg.get("language");
+        String next = "es".equals(code) ? "fr" : "fr".equals(code) ? "en" : "es";
+        cfg.put("language", next);
+        String rom = cfg.get("language_rom_" + next);
+        if (rom != null) cfg.put("language_rom", rom);
+        else if (!"en".equals(next)) cfg.remove("language_rom");
+        Lang.set(next);
+        writeConfig();
+        setContentView(buildUi());
+        refresh();
     }
 
     private TextView text(String s, float sp, int color, boolean bold) {
@@ -302,24 +341,34 @@ public class LauncherActivity extends Activity {
 
     private void refresh() {
         File rom = romFile();
-        romStatus.setText(rom != null ? "ROM: ready" : "ROM: not chosen yet");
+        romStatus.setText(rom != null ? tr("ROM: ready", "ROM: lista") : tr("ROM: not chosen yet", "ROM: sin elegir"));
         for (int p = 0; p < 2; p++) {
             String c = cfg.get("p" + (p + 1) + "_rom");
             String s = cfg.get("p" + (p + 1) + "_save");
-            cartStatus[p].setText("Cart: " + (c != null && !c.isEmpty() && new File(dir, c).exists() ? new File(c).getName() : "none"));
+            cartStatus[p].setText(tr("Cart: ", "Cartucho: ") + (c != null && !c.isEmpty() && new File(dir, c).exists() ? new File(c).getName() : tr("none", "ninguno")));
             String linked = cfg.get("p" + (p + 1) + "_save_uri");
             boolean hasSave = s != null && !s.isEmpty() && new File(dir, s).exists();
-            saveStatus[p].setText("Save: " + (!hasSave ? "none"
+            saveStatus[p].setText(tr("Save: ", "Partida: ") + (!hasSave ? tr("none", "ninguna")
                     : new File(s).getName() + (linked != null && !linked.isEmpty()
-                            ? "  (linked: Stadium's changes are saved straight to your file)"
-                            : "  (not linked: choose it again to save changes to your own file)")));
+                            ? tr("  (linked: Stadium's changes are saved straight to your file)",
+                                 "  (vinculada: los cambios de Stadium se guardan directamente en tu archivo)")
+                            : tr("  (not linked: choose it again to save changes to your own file)",
+                                 "  (sin vincular: elígela otra vez para guardar los cambios en tu propio archivo)"))));
         }
         playButton.setEnabled(rom != null && !busy);
         playButton.setAlpha(playButton.isEnabled() ? 1f : 0.5f);
         String tree = cfg.get("backup_tree");
         backupStatus.setText(tree == null || tree.isEmpty()
-                ? "Not set. Saves live in the app folder, which Android deletes if the app is uninstalled."
-                : "Saves are copied to: " + Uri.decode(Uri.parse(tree).getLastPathSegment()) + "/StadiumRecomp");
+                ? tr("Not set. Saves live in the app folder, which Android deletes if the app is uninstalled.",
+                     "Sin elegir. Las partidas están en la carpeta de la app, que Android borra si desinstalas la app.")
+                : tr("Saves are copied to: ", "Las partidas se copian en: ") + Uri.decode(Uri.parse(tree).getLastPathSegment()) + "/StadiumRecomp");
+        String langRom = cfg.get("language_rom");
+        boolean other = "es".equals(cfg.get("language")) || "fr".equals(cfg.get("language"));
+        boolean haveLangRom = langRom != null && !langRom.isEmpty() && new File(dir, langRom).exists();
+        langStatus.setText(!other ? tr("Game text: English (from your US ROM)", "Texto del juego: inglés (de tu ROM de EE. UU.)")
+                : haveLangRom ? tr("Game text from: ", "Texto del juego de: ") + langRom
+                : tr("Choose your Spanish or French Pokémon Stadium ROM below; until then the game is in English.",
+                     "Elige abajo tu ROM española o francesa de Pokémon Stadium; hasta entonces el juego estará en inglés."));
     }
 
     private void say(String s) {
@@ -349,7 +398,7 @@ public class LauncherActivity extends Activity {
                 w.println(e.getKey() + "=" + e.getValue());
             }
         } catch (IOException e) {
-            say("Couldn't save settings: " + e.getMessage());
+            say(tr("Couldn't save settings: ", "No se pudieron guardar los ajustes: ") + e.getMessage());
         }
     }
 
@@ -358,7 +407,7 @@ public class LauncherActivity extends Activity {
         busy = true;
         refresh();
         writeConfig();
-        progress("Syncing your saves…", -1);
+        progress(tr("Syncing your saves…", "Sincronizando tus partidas…"), -1);
         new Thread(() -> {
             // Pull in changes made to the players' own save files since last time
             // (e.g. in an emulator), so Stadium sees the latest Pokémon.
@@ -370,7 +419,7 @@ public class LauncherActivity extends Activity {
                 if (!warnings.isEmpty()) {
                     new android.app.AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
                             .setMessage(android.text.TextUtils.join("\n\n", warnings))
-                            .setPositiveButton("Play", (d, w) -> startGame())
+                            .setPositiveButton(tr("Play", "Jugar"), (d, w) -> startGame())
                             .setCancelable(false)
                             .show();
                 } else {
@@ -405,7 +454,8 @@ public class LauncherActivity extends Activity {
         cfg.remove(key + "_save_uri");
         writeConfig();
         refresh();
-        say("Player " + (player + 1) + "'s Transfer Pak is empty (the files stay in the carts folder).");
+        say(tr("Player " + (player + 1) + "'s Transfer Pak is empty (the files stay in the carts folder).",
+                "El Transfer Pak del jugador " + (player + 1) + " está vacío (los archivos siguen en la carpeta carts)."));
     }
 
     @Override
@@ -424,15 +474,16 @@ public class LauncherActivity extends Activity {
         }
         busy = true;
         refresh();
-        progress("Copying the file…", -1);
+        progress(tr("Copying the file…", "Copiando el archivo…"), -1);
         new Thread(() -> {
             try {
                 if (request == PICK_ROM) importRom(uri);
+                else if (request == PICK_LANG_ROM) importLangRom(uri);
                 else if (request >= PICK_SAVE) importSave(request - PICK_SAVE, uri);
                 else if (request >= PICK_CART) importCart(request - PICK_CART, uri);
             } catch (Exception e) {
                 Log.w(TAG, "file operation failed", e);
-                say("That didn't work: " + e.getMessage());
+                say(tr("That didn't work: ", "No ha funcionado: ") + e.getMessage());
             }
             progressDone();
             ui.post(() -> {
@@ -457,7 +508,7 @@ public class LauncherActivity extends Activity {
 
     private byte[] readAll(Uri uri) throws IOException {
         try (InputStream in = getContentResolver().openInputStream(uri)) {
-            if (in == null) throw new IOException("can't open the file");
+            if (in == null) throw new IOException(tr("can't open the file", "no se puede abrir el archivo"));
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             byte[] buf = new byte[1 << 16];
             int n;
@@ -468,9 +519,27 @@ public class LauncherActivity extends Activity {
 
     /** Copies the ROM in as baserom.z64, fixing .n64/.v64 byte order, and checks it's US v1.0. */
     private void importRom(Uri uri) throws Exception {
-        progress("Checking the ROM…", -1);
+        progress(tr("Checking the ROM…", "Comprobando la ROM…"), -1);
         byte[] rom = readAll(uri);
-        if (rom.length < 0x1000) throw new IOException("that file is too small to be an N64 ROM");
+        if (rom.length < 0x1000) throw new IOException(tr("that file is too small to be an N64 ROM", "ese archivo es demasiado pequeño para ser una ROM de N64"));
+        toZ64(rom);
+        String md5 = hex(MessageDigest.getInstance("MD5").digest(rom));
+        if (!ROM_MD5.equals(md5)) {
+            throw new IOException(tr("this isn't Pokémon Stadium (US v1.0). Its MD5 is ", "no es Pokémon Stadium (EE. UU. v1.0). Su MD5 es ")
+                    + md5 + tr(", expected ", ", se esperaba ") + ROM_MD5);
+        }
+        File out = new File(dir, "baserom.z64");
+        try (OutputStream o = new FileOutputStream(out)) {
+            o.write(rom);
+        }
+        try (PrintWriter w = new PrintWriter(new FileOutputStream(new File(dir, "rom.cfg")))) {
+            w.println(out.getAbsolutePath());
+        }
+        say(tr("ROM ready.", "ROM lista."));
+    }
+
+    /** Fixes .n64/.v64 byte order in place so the ROM reads as .z64. */
+    private static void toZ64(byte[] rom) {
         int b0 = rom[0] & 0xFF, b1 = rom[1] & 0xFF;
         if (b0 == 0x37 && b1 == 0x80) { // .v64: bytes swapped in pairs
             for (int i = 0; i + 1 < rom.length; i += 2) { byte t = rom[i]; rom[i] = rom[i + 1]; rom[i + 1] = t; }
@@ -480,23 +549,43 @@ public class LauncherActivity extends Activity {
                 rom[i] = rom[i + 3]; rom[i + 1] = rom[i + 2]; rom[i + 2] = t1; rom[i + 3] = t0;
             }
         }
-        String md5 = hex(MessageDigest.getInstance("MD5").digest(rom));
-        if (!ROM_MD5.equals(md5)) {
-            throw new IOException("this isn't Pokémon Stadium (US v1.0). Its MD5 is " + md5 + ", expected " + ROM_MD5);
+    }
+
+    /**
+     * Copies in the Spanish or French Pokémon Stadium the game takes its text from
+     * (language.cpp), and switches the language to match it. Game code NPOS = Spain,
+     * NPOF = France.
+     */
+    private void importLangRom(Uri uri) throws Exception {
+        progress(tr("Checking the ROM…", "Comprobando la ROM…"), -1);
+        byte[] rom = readAll(uri);
+        if (rom.length < 0x1000) throw new IOException(tr("that file is too small to be an N64 ROM", "ese archivo es demasiado pequeño para ser una ROM de N64"));
+        toZ64(rom);
+        String code = new String(rom, 0x3B, 4, "US-ASCII");
+        String lang = "NPOS".equals(code) ? "es" : "NPOF".equals(code) ? "fr" : null;
+        if (lang == null) {
+            throw new IOException(tr("this isn't the Spanish or French Pokémon Stadium (game code " + code.trim() + ")",
+                    "no es el Pokémon Stadium español ni el francés (código " + code.trim() + ")"));
         }
-        File out = new File(dir, "baserom.z64");
-        try (OutputStream o = new FileOutputStream(out)) {
+        String name = "stadium_" + lang + ".z64";
+        try (OutputStream o = new FileOutputStream(new File(dir, name))) {
             o.write(rom);
         }
-        try (PrintWriter w = new PrintWriter(new FileOutputStream(new File(dir, "rom.cfg")))) {
-            w.println(out.getAbsolutePath());
-        }
-        say("ROM ready.");
+        cfg.put("language", lang);
+        cfg.put("language_rom", name);
+        cfg.put("language_rom_" + lang, name);
+        Lang.set(lang);
+        ui.post(() -> {
+            setContentView(buildUi());
+            refresh();
+        });
+        say("es".equals(lang) ? tr("Spanish ROM ready: the game text will be in Spanish.", "ROM española lista: el texto del juego estará en español.")
+                : tr("French ROM ready: the game text will be in French.", "ROM francesa lista: el texto del juego estará en francés."));
     }
 
     private void importCart(int player, Uri uri) throws Exception {
         byte[] gb = readAll(uri);
-        if (gb.length < 0x150) throw new IOException("that file is too small to be a Game Boy ROM");
+        if (gb.length < 0x150) throw new IOException(tr("that file is too small to be a Game Boy ROM", "ese archivo es demasiado pequeño para ser una ROM de Game Boy"));
         String title = new String(gb, 0x134, 16, "US-ASCII").replace('\0', ' ').trim();
         File carts = new File(dir, "carts");
         carts.mkdirs();
@@ -505,7 +594,8 @@ public class LauncherActivity extends Activity {
             o.write(gb);
         }
         cfg.put("p" + (player + 1) + "_rom", "carts/" + name);
-        say("Player " + (player + 1) + " cart: " + title + ". Choose its save next (or play with an empty one).");
+        say(tr("Player " + (player + 1) + " cart: " + title + ". Choose its save next (or play with an empty one).",
+                "Cartucho del jugador " + (player + 1) + ": " + title + ". Ahora elige su partida (o juega con una vacía)."));
     }
 
     /**
@@ -539,11 +629,14 @@ public class LauncherActivity extends Activity {
         if (writable) {
             cfg.put("p" + (player + 1) + "_save_uri", uri.toString());
             SaveSync.markInSync(dir, player + 1, sav);
-            say("Player " + (player + 1) + " save linked: " + name + ". Changes in Stadium are saved straight to it.");
+            say(tr("Player " + (player + 1) + " save linked: " + name + ". Changes in Stadium are saved straight to it.",
+                    "Partida del jugador " + (player + 1) + " vinculada: " + name + ". Los cambios en Stadium se guardan directamente en ella."));
         } else {
             cfg.remove("p" + (player + 1) + "_save_uri");
-            say("Player " + (player + 1) + " save: " + name + ". That location doesn't allow writing, so changes stay in "
-                    + "Stadium's copy. Move the save to a folder like Documents and choose it again.");
+            say(tr("Player " + (player + 1) + " save: " + name + ". That location doesn't allow writing, so changes stay in "
+                    + "Stadium's copy. Move the save to a folder like Documents and choose it again.",
+                    "Partida del jugador " + (player + 1) + ": " + name + ". Esa ubicación no permite escribir, así que los cambios se "
+                    + "quedan en la copia de Stadium. Mueve la partida a una carpeta como Documentos y elígela otra vez."));
         }
     }
 
@@ -597,7 +690,7 @@ public class LauncherActivity extends Activity {
             Log.i(TAG, "backed up " + files.size() + " save(s)");
         } catch (Exception e) {
             Log.w(TAG, "save backup failed", e);
-            say("Save backup failed: " + e.getMessage() + ". Choose the backup folder again.");
+            say(tr("Save backup failed: ", "Falló la copia de seguridad: ") + e.getMessage() + tr(". Choose the backup folder again.", ". Elige otra vez la carpeta de copias."));
         }
     }
 
@@ -706,7 +799,7 @@ public class LauncherActivity extends Activity {
                 ui.post(() -> {
                     updateUrl = u;
                     updateName = n;
-                    updateButton.setText("Update available: " + n + " (download and install)");
+                    updateButton.setText(tr("Update available: ", "Actualización disponible: ") + n + tr(" (download and install)", " (descargar e instalar)"));
                     updateButton.setVisibility(View.VISIBLE);
                 });
             }
@@ -720,7 +813,7 @@ public class LauncherActivity extends Activity {
         if (busy || updateUrl == null) return;
         busy = true;
         refresh();
-        progress("Connecting to GitHub…", -1);
+        progress(tr("Connecting to GitHub…", "Conectando con GitHub…"), -1);
         new Thread(() -> {
             File apk = new File(getExternalCacheDir(), "update.apk");
             try {
@@ -738,12 +831,12 @@ public class LauncherActivity extends Activity {
                         int percent = total > 0 ? (int) (done * 100 / total) : -1;
                         if (percent != shownPercent || total <= 0 && (done & ((4 << 20) - 1)) < n) {
                             shownPercent = percent;
-                            progress(String.format(Locale.US, "Downloading %s\n%d of %s MB", updateName, done >> 20,
+                            progress(String.format(Locale.US, tr("Downloading %s\n%d of %s MB", "Descargando %s\n%d de %s MB"), updateName, done >> 20,
                                     total > 0 ? String.valueOf(total >> 20) : "?"), percent);
                         }
                     }
                 }
-                progress("Preparing the update…", 0);
+                progress(tr("Preparing the update…", "Preparando la actualización…"), 0);
                 android.content.pm.PackageInstaller installer = getPackageManager().getPackageInstaller();
                 android.content.pm.PackageInstaller.SessionParams params = new android.content.pm.PackageInstaller.SessionParams(
                         android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
@@ -760,13 +853,14 @@ public class LauncherActivity extends Activity {
                             int percent = (int) (done * 100 / Math.max(1, apk.length()));
                             if (percent != shownPercent) {
                                 shownPercent = percent;
-                                progress("Preparing the update…", percent);
+                                progress(tr("Preparing the update…", "Preparando la actualización…"), percent);
                             }
                         }
-                        progress("Finishing up…", -1);
+                        progress(tr("Finishing up…", "Terminando…"), -1);
                         session.fsync(out);
                     }
-                    progress("Android is checking the update.\nConfirm when it asks; this can take a minute.", -1);
+                    progress(tr("Android is checking the update.\nConfirm when it asks; this can take a minute.",
+                            "Android está comprobando la actualización.\nConfirma cuando te lo pida; puede tardar un minuto."), -1);
                     Intent status = new Intent(this, LauncherActivity.class).setAction(ACTION_INSTALL_STATUS);
                     android.app.PendingIntent pending = android.app.PendingIntent.getActivity(this, 0, status,
                             android.app.PendingIntent.FLAG_MUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
@@ -775,7 +869,7 @@ public class LauncherActivity extends Activity {
             } catch (Exception e) {
                 Log.w(TAG, "update failed", e);
                 progressDone();
-                say("Update failed: " + e.getMessage());
+                say(tr("Update failed: ", "Falló la actualización: ") + e.getMessage());
                 ui.post(() -> {
                     busy = false;
                     refresh();
@@ -787,7 +881,8 @@ public class LauncherActivity extends Activity {
     private void onInstallStatus(Intent intent) {
         int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
         if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
-            progress("Confirm the update in Android's prompt.\nWhen it's installed, open Stadium Recomp again.", -1);
+            progress(tr("Confirm the update in Android's prompt.\nWhen it's installed, open Stadium Recomp again.",
+                    "Confirma la actualización en el aviso de Android.\nCuando esté instalada, vuelve a abrir Stadium Recomp."), -1);
             Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
             if (confirm != null) startActivity(confirm);
             return;
@@ -796,7 +891,7 @@ public class LauncherActivity extends Activity {
         busy = false;
         refresh();
         if (status != android.content.pm.PackageInstaller.STATUS_SUCCESS) {
-            say("Update not installed: " + intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE));
+            say(tr("Update not installed: ", "Actualización no instalada: ") + intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE));
         }
     }
 

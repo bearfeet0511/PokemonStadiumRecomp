@@ -332,7 +332,7 @@ public class BattlePanel extends Presentation {
             if (active == null) {
                 text.setColor(Color.rgb(150, 160, 185));
                 text.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("Choosing...", (left + right) / 2, h / 2, text);
+                canvas.drawText(Lang.tr("Choosing...", "Eligiendo..."), (left + right) / 2, h / 2, text);
                 text.setTextAlign(Paint.Align.LEFT);
                 return;
             }
@@ -388,7 +388,7 @@ public class BattlePanel extends Presentation {
             final float width = right - inset - x;
 
             // Line 1: name, and level or status on the right.
-            String tag = m.fainted ? "FNT" : m.status.isEmpty() ? "Lv " + m.level : m.status;
+            String tag = m.fainted ? Lang.tr("FNT", "DEB") : m.status.isEmpty() ? Lang.tr("Lv ", "Nv ") + m.level : statusLabel(m.status);
             float tagWidth = text.measureText(tag);
             text.setTextAlign(Paint.Align.RIGHT);
             text.setColor(m.fainted ? Color.rgb(230, 90, 90) : statusColor(m.status));
@@ -403,7 +403,7 @@ public class BattlePanel extends Presentation {
                 // Centred on the whole card so it reads in full.
                 text.setColor(Color.rgb(120, 220, 255));
                 text.setTextAlign(Paint.Align.CENTER);
-                c.drawText(ellipsize("Tap again to switch", right - left - inset * 2), (left + right) / 2, line2, text);
+                c.drawText(ellipsize(Lang.tr("Tap again to switch", "Toca otra vez para cambiar"), right - left - inset * 2), (left + right) / 2, line2, text);
                 text.setTextAlign(Paint.Align.LEFT);
                 return;
             }
@@ -507,13 +507,13 @@ public class BattlePanel extends Presentation {
                 float left = pad + (slot % 3) * (tileW + pad);
                 float top = pad + (slot / 3) * (tileH + pad);
                 RectF tile = new RectF(left, top, left + tileW, top + tileH);
-                drawPickTile(c, tile, buttonLabel(PICK_BITS[slot]), p[1], "Lv " + p[2], pickRects.size() == flashPick);
+                drawPickTile(c, tile, buttonLabel(PICK_BITS[slot]), p[1], Lang.tr("Lv ", "Nv ") + p[2], pickRects.size() == flashPick);
                 pickRects.add(tile);
                 pickBits.add(PICK_BITS[slot]);
             }
             float top = h - pad - undoH;
             RectF undo = new RectF(pad, top, w - pad, top + undoH);
-            drawPickTile(c, undo, "L", "Undo last pick", null, pickRects.size() == flashPick);
+            drawPickTile(c, undo, "L", Lang.tr("Undo last pick", "Deshacer última elección"), null, pickRects.size() == flashPick);
             pickRects.add(undo);
             pickBits.add(BUTTON_L);
         }
@@ -552,6 +552,17 @@ public class BattlePanel extends Presentation {
             text.setColor(Color.rgb(170, 180, 205));
             c.drawText(line2, cx, tile.top + tile.height() * 0.84f, text);
             text.setTextAlign(Paint.Align.LEFT);
+        }
+
+        /** Status tags as the Spanish games abbreviate them (sleep, poison, burn, freeze, paralysis). */
+        private String statusLabel(String status) {
+            switch (status) {
+                case "SLP": return Lang.tr(status, "DOR");
+                case "PSN": return Lang.tr(status, "ENV");
+                case "BRN": return Lang.tr(status, "QUE");
+                case "FRZ": return Lang.tr(status, "CON");
+                default: return status; // PAR is the same in both
+            }
         }
 
         /** Cuts text to fit width at the current size, ending with an ellipsis. */

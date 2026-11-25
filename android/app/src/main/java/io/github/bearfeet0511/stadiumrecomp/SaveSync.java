@@ -113,13 +113,17 @@ final class SaveSync {
                     writeFile(keep, mine);
                     writeFile(local, source);
                     saveState(dir, "p" + p, hs);
-                    warnings.add("Player " + p + "'s save changed both in Stadium and elsewhere. Using the original; "
-                            + "Stadium's version was kept as saves/backups/" + keep.getName() + ".");
+                    warnings.add(Lang.tr("Player " + p + "'s save changed both in Stadium and elsewhere. Using the original; "
+                            + "Stadium's version was kept as saves/backups/" + keep.getName() + ".",
+                            "La partida del jugador " + p + " cambió en Stadium y fuera de él. Se usa la original; "
+                            + "la versión de Stadium se guardó como saves/backups/" + keep.getName() + "."));
                 }
             } catch (SecurityException | IOException e) {
                 Log.w(TAG, "player " + p + " save sync failed", e);
-                warnings.add("Player " + p + "'s save couldn't be reached (" + e.getMessage()
-                        + "). Choose it again in the launcher so changes keep going back to it.");
+                warnings.add(Lang.tr("Player " + p + "'s save couldn't be reached (" + e.getMessage()
+                        + "). Choose it again in the launcher so changes keep going back to it.",
+                        "No se pudo acceder a la partida del jugador " + p + " (" + e.getMessage()
+                        + "). Elígela otra vez en el lanzador para que los cambios se sigan guardando en ella."));
             }
         }
         return warnings;

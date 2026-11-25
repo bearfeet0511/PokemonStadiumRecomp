@@ -47,6 +47,7 @@ public class MainActivity extends SDLActivity {
     protected void onCreate(android.os.Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         java.io.File dir = getExternalFilesDir(null);
+        if (dir != null) Lang.load(dir);
         if (dir != null) saveSync = new SaveSync.Watcher(this, dir, readConfig(dir));
         // Ask Android for steady performance: between demanding moments the GPU
         // clocks down, and a send-out then misses frames before it clocks back up.
