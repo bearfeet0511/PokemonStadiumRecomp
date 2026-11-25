@@ -96,7 +96,6 @@ SS Anne was created by mstan, who stopped maintaining it in August 2026 and welc
 - [N64Recomp](https://github.com/N64Recomp/N64Recomp), N64ModernRuntime and [RT64](https://github.com/rt64/rt64), the recompilation toolchain and renderer.
 - [pret/pokestadium](https://github.com/pret/pokestadium) and [pret/pokered](https://github.com/pret/pokered) disassemblies.
 - [Goemon64Recomp-Android](https://github.com/ogdanimal/Goemon64Recomp-Android), whose Android work showed the way for RT64 on Android.
-- The unofficial Pokémon Stadium port for New 3DS by @dave_schobert, whose language support and Transfer Pak write-back design this fork follows.
 - Gen1Recomp save support uses code from BOIS CLUB GAMES, LLC's [Pokemon Gen 1 Recompilation Project](https://github.com/bryanthaboi/gen1recomp) (GPLv3 with additional terms; its license ships in `gen1recomp\LICENSE.MD`).
 - [SDL2](https://www.libsdl.org/), and [LuaJIT](https://luajit.org/), which runs the save converter.
 
