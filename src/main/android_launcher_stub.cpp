@@ -38,19 +38,32 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     return true;
 }
 
+// Player 1 is always on. Players 2-4 are plugged in when the launcher gave them
+// a Game Boy cart (pN_rom): the game only finds a Transfer Pak on a connected
+// controller. They get the next connected gamepad if there is one; otherwise the
+// port answers with idle input, as on PC.
 PortAssignment port_assignment(int port) {
     PortAssignment assignment;
-    if (port != 0) {
+    if (port < 0 || port > 3) {
+        return assignment;
+    }
+    const bool has_cart = !cfg_value("p" + std::to_string(port + 1) + "_rom").empty();
+    if (port != 0 && !has_cart) {
         return assignment;
     }
     assignment.enabled = true;
-    assignment.kind = DeviceKind::Gamepad;
     SDL_GameControllerUpdate();
+    int seen = 0;
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
-        if (SDL_IsGameController(i)) {
+        if (!SDL_IsGameController(i)) continue;
+        if (seen++ == port) {
+            assignment.kind = DeviceKind::Gamepad;
             assignment.gamepad_instance = static_cast<int>(SDL_JoystickGetDeviceInstanceID(i));
             break;
         }
+    }
+    if (port == 0) {
+        assignment.kind = DeviceKind::Gamepad; // even before a pad shows up
     }
     return assignment;
 }
