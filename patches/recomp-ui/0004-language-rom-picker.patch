@@ -1,0 +1,69 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index d9dd7aa..8e183e0 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -2049,6 +2049,24 @@ void draw_audio_controls(LauncherModel* m, const LauncherTheme& th) {
+         row_label("Language", th);
+         if (ImGui::Button(launcher_model_language_label(m), ImVec2(px(140), px(30))))
+             launcher_model_cycle_language(m);
++        if (m->language_rom_label && m->s.language_index > 0) {
++            row_label(m->language_rom_label, th);
++            const float bw = px(78);
++            float avail = ImGui::GetContentRegionAvail().x - bw - px(th.spacing_sm);
++            if (avail < px(50)) avail = px(50);
++            const char* lp = m->s.bios_path[0] ? m->s.bios_path : "(none chosen)";
++            char elided[192]; elide_left(lp, avail, elided, sizeof(elided));
++            ImGui::AlignTextToFramePadding();
++            ImGui::TextColored(col(m->s.bios_path[0] ? th.text : th.warn), "%s", elided);
++            ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw);
++            if (ImGui::Button("Browse##langrom", ImVec2(bw, px(28)))) {
++                char buf[512];
++                static const char* kRomPatterns[] = { "*.z64", "*.n64", "*.v64" };
++                if (launcher_pick_file("Select ROM", kRomPatterns, 3,
++                                       "N64 ROM (.z64 .n64 .v64)", buf, sizeof(buf)))
++                    launcher_model_set_bios_path(m, buf);
++            }
++        }
+     }
+ }
+ 
+diff --git a/src/common/launcher_model.c b/src/common/launcher_model.c
+index 594d576..c366157 100644
+--- a/src/common/launcher_model.c
++++ b/src/common/launcher_model.c
+@@ -127,6 +127,7 @@ void launcher_model_init(LauncherModel* m,
+         m->aspect_experimental  = game->aspect_experimental != 0;
+         m->frame_interp_label   = game->frame_interp_label;
+         m->frame_interp_experimental = game->frame_interp_experimental != 0;
++        m->language_rom_label   = game->language_rom_label;
+         m->adaptive_view_supported = game->adaptive_view_supported != 0;
+         m->tpak_slots           = clampi(game->tpak_slots, 0, RECOMP_LAUNCHER_MAX_TPAKS);
+         m->tpak_inspect_cb      = game->tpak_inspect;
+diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
+index e7c4a33..fe39edd 100644
+--- a/src/common/launcher_model.h
++++ b/src/common/launcher_model.h
+@@ -206,6 +206,7 @@ typedef struct {
+     bool aspect_experimental;
+     const char* frame_interp_label;   // GameInfo.frame_interp_label
+     bool frame_interp_experimental;
++    const char* language_rom_label;   // GameInfo.language_rom_label
+     bool adaptive_view_supported;
+     // Number of players the GAME actually supports. Mega Man X is 1-player, so
+     // the launcher must not show a dead Player 2 row. Games that support 2
+diff --git a/src/recomp_launcher.h b/src/recomp_launcher.h
+index 8ec19cd..1a1a461 100644
+--- a/src/recomp_launcher.h
++++ b/src/recomp_launcher.h
+@@ -368,6 +368,11 @@ typedef struct RecompLauncherCGameInfo {
+     // row (e.g. "60 fps" for the RT64 hosts). NULL => the PSX-style rows.
+     const char* frame_interp_label;
+     int  frame_interp_experimental;
++
++    // When set, choosing any language but the first shows a file row with this
++    // label under Language (e.g. "Spanish ROM"); the pick is stored in
++    // Settings.bios_path, which such games use for nothing else.
++    const char* language_rom_label;
+ } RecompLauncherCGameInfo;
+ 
+ // Returns: 0 = LAUNCH (boot out_rom_path with the edited *io),

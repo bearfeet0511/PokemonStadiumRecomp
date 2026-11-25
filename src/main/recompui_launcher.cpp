@@ -262,6 +262,11 @@ void load_cfg_into_settings(RecompLauncherCSettings& s) {
     s.no_update_check = (cfg.count("check_updates") && !parse_bool(cfg["check_updates"], true)) ? 1 : 0;
     s.aspect_index = (to_lower_str(get("aspect_ratio")) == "widescreen") ? 1 : 0;
     s.frame_interp = (std::atoi(get("framerate").c_str()) == 60) ? 1 : 0;
+    // Text language (language.cpp); the other version's ROM is kept in bios_path,
+    // which Stadium doesn't otherwise use.
+    const std::string lang = to_lower_str(get("language"));
+    s.language_index = (lang == "es") ? 1 : (lang == "fr") ? 2 : 0;
+    set_str(s.bios_path, sizeof(s.bios_path), get("language_rom"));
 }
 
 // Persist a committed RecompLauncherCSettings back to launcher.cfg, using the
@@ -329,6 +334,10 @@ void write_settings_to_cfg(const RecompLauncherCSettings& s) {
     f << "aspect_ratio=" << (s.aspect_index == 1 ? "widescreen" : "original") << "\n";
     f << "# framerate=30|60 : 60 draws in-between frames (experimental: brief glitches on fast motion).\n";
     f << "framerate=" << (s.frame_interp ? 60 : 30) << "\n";
+    f << "# language=en|es|fr : game text; es/fr read it from language_rom, your own\n";
+    f << "#   copy of the Spanish/French Pokemon Stadium (the game itself stays US).\n";
+    f << "language=" << (s.language_index == 1 ? "es" : s.language_index == 2 ? "fr" : "en") << "\n";
+    f << "language_rom=" << s.bios_path << "\n";
 }
 
 // ---- host enumeration for the launcher's dropdowns ------------------------
@@ -411,6 +420,12 @@ bool run(const char* rom_path_in, char* out_rom, std::size_t out_len) {
     gi.has_frame_interp          = 1;
     gi.frame_interp_label        = "60 fps";
     gi.frame_interp_experimental = 1;
+
+    // Text in Spanish/French from the player's own copy of that version.
+    static const char* const kLanguages[3] = { "English", "Espa\xC3\xB1ol", "Fran\xC3\xA7" "ais" };
+    gi.language_labels    = kLanguages;
+    gi.num_languages      = 3;
+    gi.language_rom_label = "Stadium ROM";
 
     // The rebind page edits PSR's own input.cfg (next to the exe) — the same
     // file pkmnstadium::input reads; recomp-ui's n64_binds.c replicates its

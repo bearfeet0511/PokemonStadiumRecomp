@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "app_paths.h"
+#include "language.h"
 
 extern "C" uint8_t* recomp_runtime_get_rdram(void);
 
@@ -136,25 +137,24 @@ std::vector<uint8_t> logo_rgba() {
 
 namespace {
 
-// Move names come from the player's own ROM (a NUL-separated list in move-ID
-// order), so no game text is copied into this project.
+// Move names come from the text the game is using (the player's own ROM, or
+// the Spanish/French one chosen in the launcher; see language.cpp): section 37
+// of the text archive lists them in move-ID order. No game text is copied into
+// this project.
+std::string clean(std::string text);
+
 const std::vector<std::string>& move_names() {
+    // Filled on first use once the ROM is loaded (tried again until then).
     static std::vector<std::string> names;
-    static std::once_flag loaded;
-    std::call_once(loaded, [] {
-        std::ifstream file(rom_path(), std::ios::binary);
-        const std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        static const char kFirst[] = "POUND\0KARATE CHOP";
-        const auto it = std::search(data.begin(), data.end(), kFirst, kFirst + sizeof(kFirst) - 1);
-        if (it == data.end()) return;
-        names.emplace_back(); // move 0: empty slot
-        for (auto p = it; p != data.end() && names.size() < 166;) {
-            auto end = std::find(p, data.end(), '\0');
-            names.emplace_back(p, end);
-            if (end == data.end()) break;
-            p = end + 1;
+    static std::mutex mutex;
+    std::lock_guard lock(mutex);
+    if (names.empty()) {
+        auto text = language::text_section(37);
+        if (!text.empty()) {
+            names.emplace_back(); // move 0: empty slot
+            for (auto& n : text) names.push_back(clean(n));
         }
-    });
+    }
     return names;
 }
 
@@ -175,6 +175,10 @@ std::string clean(std::string text) {
     for (const char c : text) {
         const auto u = static_cast<unsigned char>(c);
         if (u >= 0x20 && u < 0x7F) out += c;
+        else if (u >= 0xA0) { // Latin-1 (Spanish/French text) to UTF-8
+            out += static_cast<char>(0xC0 | (u >> 6));
+            out += static_cast<char>(0x80 | (u & 0x3F));
+        }
         else if (c == '\t' || c == '\n') out += ' ';
     }
     return out;

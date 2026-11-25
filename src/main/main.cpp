@@ -124,6 +124,7 @@ extern "C" const char* psr_app_file_c(const char* name, char* out, unsigned long
 #include "netplay.h"
 #include "widescreen.h"
 #include "battle_panel.h"
+#include "language.h"
 #include "netplay_probe.h"
 
 extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx);
@@ -2295,6 +2296,9 @@ int main(int argc, char** argv) {
     // hook for a one-time runtime-init fact. See TEMP_PATCHES.md
     // 'force-expansion-ram' entry (retired by this change).
     game.on_init_callback = [](uint8_t* rdram, recomp_context* /*ctx*/) {
+        // The ROM is in memory now (loaded at game start); swap in the other
+        // language's text before the game reads it.
+        pkmnstadium::language::apply();
         // gExpansionRAMStart at kseg0 0x80068B90 -> physical 0x00068B90.
         // Write u32 = 1 with XOR-3 byte order to match recompiled MEM_W.
         constexpr uint32_t paddr = 0x00068B90u;

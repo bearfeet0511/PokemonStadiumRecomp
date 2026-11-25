@@ -189,6 +189,7 @@ target_sources(PokemonStadiumRecomp PRIVATE
     src/main/update_check.cpp
     src/main/widescreen.cpp
     src/main/battle_panel.cpp
+    src/main/language.cpp
     src/main/gb_audio.cpp
     src/main/input_bindings.cpp
     src/main/audio_host_probe.cpp

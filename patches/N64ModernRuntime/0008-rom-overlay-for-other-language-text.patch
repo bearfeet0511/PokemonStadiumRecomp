@@ -1,0 +1,55 @@
+diff --git a/librecomp/include/librecomp/game.hpp b/librecomp/include/librecomp/game.hpp
+index fc6b2d8..73646cf 100644
+--- a/librecomp/include/librecomp/game.hpp
++++ b/librecomp/include/librecomp/game.hpp
+@@ -97,6 +97,12 @@ namespace recomp {
+     bool is_rom_loaded();
+     void set_rom_contents(std::vector<uint8_t>&& new_rom);
+     std::span<const uint8_t> get_rom();
++    // Game-side data overlays (e.g. another language's text). patch_rom overwrites
++    // bytes of the loaded ROM in place; set_rom_extension serves extra data to PI
++    // reads at ROM offsets from rom_extension_base (past the 32 MB cart).
++    constexpr uint32_t rom_extension_base = 0x02000000;
++    bool patch_rom(uint32_t rom_offset, const uint8_t* data, size_t size);
++    void set_rom_extension(std::vector<uint8_t> data);
+     // Mirror ROM into rdram's kseg1 region so direct MIPS reads of
+     // cart vaddrs (e.g. lw $t1, 0xB0000E38) return correct bytes.
+     // Call once after rdram is allocated. Without this, ROM-checksum
+diff --git a/librecomp/src/pi.cpp b/librecomp/src/pi.cpp
+index 7e595ce..1a28397 100644
+--- a/librecomp/src/pi.cpp
++++ b/librecomp/src/pi.cpp
+@@ -158,6 +158,18 @@ void recomp::mirror_rom_to_kseg1(uint8_t* rdram) {
+     }
+ }
+ 
++static std::vector<uint8_t> rom_extension;
++
++bool recomp::patch_rom(uint32_t rom_offset, const uint8_t* data, size_t size) {
++    if (rom_offset > rom.size() || size > rom.size() - rom_offset) return false;
++    std::memcpy(rom.data() + rom_offset, data, size);
++    return true;
++}
++
++void recomp::set_rom_extension(std::vector<uint8_t> data) {
++    rom_extension = std::move(data);
++}
++
+ std::span<const uint8_t> recomp::get_rom() {
+     return rom;
+ }
+@@ -300,6 +312,14 @@ void recomp::do_rom_read(uint8_t* rdram, gpr ram_address, uint32_t physical_addr
+     // diagnostic data flowing — the underlying pointer corruption
+     // still needs root-cause investigation.
+     const uint32_t rom_off = physical_addr - recomp::rom_base;
++    if (rom_off >= recomp::rom_extension_base &&
++        rom_off - recomp::rom_extension_base + num_bytes <= rom_extension.size()) {
++        const uint8_t* src = rom_extension.data() + (rom_off - recomp::rom_extension_base);
++        for (size_t copied = 0; copied < num_bytes; ++copied) {
++            MEM_B(copied, ram_address) = src[copied];
++        }
++        return;
++    }
+     if (rom_off >= rom.size() || rom_off + num_bytes > rom.size()) {
+         static int s_logged = 0;
+         if (s_logged < 8) {
