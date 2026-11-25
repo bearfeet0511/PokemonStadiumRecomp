@@ -37,6 +37,12 @@ Inspected from its readme, patch notes and text strings only (no ROMs touched). 
 - **Other features he added:** EN/ES/FR language support from other-region ROMs, screen modes (4:3 / full / 3D), "Smooth" mode, GB screen movable to the bottom screen, session log + bug dump folder, local wireless 2-player (host sends its save to guest for the session).
 - **Bugs he reports fixing** (worth checking in our build): freeze when a Pokémon evolves after a trade; Pokémon duplicated between two saves after a trade; sound cutting out / 0 fps in Gym Leader Castle after a corrupted sound command; Recover rainbow effect; some reflective surfaces.
 
+## Current priorities (user, 2026-11-25)
+1. Widescreen move effects (Stun Spore, then Surf; plan under "Widescreen, still open").
+2. 60 fps models splitting (investigate RT64 matrix tagging via the decomp first).
+3. Gen 4/5 DS-style bottom screen.
+4. Then: Kids Club widescreen + 60 fps; Android parity (netplay, Gen1Recomp saves, GB Tower check); Windows parity (battle panel window, backup folder); trainer name boxes; CRT filter; texture packs.
+
 ## Milestones
 
 ### Phase 1: parity with the 3DS port, on Thor
@@ -117,7 +123,6 @@ What Android changes:
 - adb was unreliable through the PC's front-panel USB hub ("offline"); a rear motherboard port works.
 
 Android status (2026-11-16, Thor): boots, runs smoothly, sound works, gamepad input works. Transfer Pak works with a cart in the app folder (`carts/`, paths relative to the app folder in `launcher.cfg`; push files with adb, `chmod 666` so the app can write them). Open:
-- Music sounds quieter relative to effects and announcer than on PC (unconfirmed; compare the same scene on PC).
 - GB Tower boots Red but loads in ~49 s (PC: a few seconds). Cause: `send_external_message_after` starts a thread per SI DMA (two per Transfer Pak block, ~22k blocks), ~1 ms each on Bionic. Tried and reverted: (1) sending sub-ms messages immediately: fast, but GB Tower's time-limited preload reached bank 44 and failed ("Transfer Pak not set properly"); (2) one long-lived sender thread: low frame rate during the load, then the same error. The preload depends on the loader blocking per read so other guest threads run; a fix must keep that (e.g. a timed wait inside the guest scheduler) and be checked against the bank-44 failure.
 - GB Tower's picture is off-centre (shifted left/down) with a rainbow line at the top, on Android only; normal screens are centred. GB Tower uses its own VI mode.
 - The debug APK doubled from 371 to 739 MB between builds (unexplained).
@@ -173,11 +178,11 @@ Found by dumping RDRAM during a Free Battle with Game Pak Pokemon (`tools\rdram_
 - 60 fps follow-ups (2026-11-22, Thor):
   - Model splitting: Slowbro and Dragonite look see-through when they run back after a knockback, and Gastly glitches. Snapping only the parts past a limit (patch 0006) splits a model from its blended neighbours; tightening the limit (`PSR_INTERP_MAX_SCREEN=0.2`) didn't help. Camera-only blending (`PSR_INTERP_MODELS=0`, models at 30 fps) fixes it but the user found it much less smooth, so it's off. Next idea: snap a whole model together (group parts by draw order / projection) instead of part by part.
   - Send-out stutter (parked to the end by the user): the game holds 30 game fps; at 60 fps, send-out frames take 19-42 ms of GPU (`[slow-frame]` log: ordinary draw counts, no screen copies). The Thor's Performance mode removes it. On normal mode the GPU stays at 401 MHz whatever the app does: `isSustainedPerformanceModeSupported` is false, and extra idle work (`PSR_RT64_IDLE_GROUPS`, empty dispatches) raised load to 78% without raising the clock. Options: recommend Performance mode for 60 fps on the Thor, or find what makes those frames expensive.
-- Bottom screen, later (user, 2026-11-22): a layout more like the DS Pokémon games; a Pokémon button opens the team list, giving the moves more room.
+- Bottom screen (user, 2026-11-22; next after widescreen and 60 fps, 2026-11-25): a layout like the Gen 4/5 DS Pokémon battle menus; a Pokémon button opens the team list, giving the moves more room.
 - CRT filter: wanted (user, 2026-11-21). RT64 has none; it would be a post-process shader in the present step, as an option.
 - Texture packs: wanted (user, 2026-11-21). RT64 supports replacement textures; needs a way to pick a pack on Android and a launcher setting on Windows.
 - The Windows build hasn't been rebuilt from `build/android`; check it still builds and runs before merging.
-- Earlier open items: GB Tower load time and off-centre picture, music quieter than PC, Transfer Pak saves back to PokeDaisy, a touch launcher/ROM picker.
+- Earlier open items: GB Tower load time and off-centre picture (user will recheck), a touch launcher. (Music volume: fine, per the user, 2026-11-25. PokeDaisy saves: done by save linking.)
 - Transfer Pak saves must be written back to the player's own file automatically, never through an export step (user's core goal). Android (`SaveSync.java`): the launcher links the chosen .sav (persistable content URI, `pN_save_uri`); the game plays a working copy in carts/ (`pN_save`); a FileObserver pushes each write back within ~1 s; Play first pulls newer changes from the original. `saves/sync.properties` holds each pair's last agreed SHA-256; if both sides changed, the working copy goes to saves/backups/*.conflict-* and the original wins. Files inside another app's `Android/data` can't be picked (Android 11+).
 - Feature parity: everything is meant to reach both Windows and Android (e.g. Gen1Recomp saves on Android, launcher switches on Windows); call gaps "for now".
 - Android launcher (done 2026-11-21, `LauncherActivity.java`): opens before the game. Stadium ROM picker (MD5 check, .n64/.v64 fixed), per-player GB ROM/save pickers (save linked, see above), toggles (widescreen and 60 fps marked experimental, dual-screen battle panel = `bottom_screen`, `check_updates`), Play. Controller: D-pad, A, B closes, Start plays. Writes launcher.cfg / rom.cfg. Native code gets the app folder from Java there (`nativeSetDataDir`): SDL isn't running in the launcher and `SDL_AndroidGetExternalStoragePath` crashed.
